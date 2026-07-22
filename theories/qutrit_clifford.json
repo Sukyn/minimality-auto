@@ -1,0 +1,31 @@
+{
+  "name": "Qutrit Clifford (Figure 4)",
+  "wire_dimension": 3,
+  "source": {"paper": "arXiv:2602.09874", "figure": 4, "minimality_scope": "up to 2 wires"},
+  "generators": [
+    {"name": "omega", "inputs": 0, "outputs": 0, "matrix": [["0.8660254037844386+0.5i"]]},
+    {"name": "H", "inputs": 1, "outputs": 1, "matrix": [[-0.5773502691896258, -0.5773502691896258, -0.5773502691896258], [-0.5773502691896258, "0.2886751345948129-0.5i", "0.2886751345948129+0.5i"], [-0.5773502691896258, "0.2886751345948129+0.5i", "0.2886751345948129-0.5i"]]},
+    {"name": "S", "inputs": 1, "outputs": 1, "matrix": [[1, 0, 0], [0, 1, 0], [0, 0, "-0.5+0.8660254037844386i"]]},
+    {"name": "CNOT", "inputs": 2, "outputs": 2, "matrix": [[1,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0],[0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0,0]]}
+  ],
+  "macros": {
+    "K": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
+    "H3": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
+    "S_dagger": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"S","on":[0]},{"gen":"S","on":[0]}]}},
+    "S_prime": {"type": [1,1], "body": {"wires": 1, "ops": [{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]}]}},
+    "Z": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"macro":"S_prime","on":[0]}]}},
+    "X": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"macro":"Z","on":[0]},{"macro":"H3","on":[0]}]}}
+  },
+  "equations": [
+    {"id":"omega12","paper_label":"omega^12","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0},"expected_separator":{"strategy":"presence","generators":["omega"]}},
+    {"id":"H4","paper_label":"H^4","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["H"]}},
+    {"id":"S3","paper_label":"S^3","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["S"]}},
+    {"id":"E","paper_label":"E","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"H","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"tensor":[{"wires":0,"ops":[{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]}]},{"wires":1,"ops":[{"macro":"H3","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"macro":"H3","on":[0]}]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"H":1},"swap":0},"semantic_note":"The displayed omega_12^7 law fixes H to minus the positive Fourier matrix. The prose formula omits this global minus; its printed positive Fourier matrix makes the sides differ by -1."},
+    {"id":"SSprime","paper_label":"SS'","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]}]},"rhs":{"wires":1,"ops":[{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]},{"gen":"S","on":[0]}]},"expected_separator":{"strategy":"substitution","generator":"S","replacement":{"wires":1,"ops":[{"gen":"S","on":[0]},{"macro":"X","on":[0]}]},"replacement_label":"S; X"}},
+    {"id":"CPh","paper_label":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"S","on":[0]},{"macro":"K","on":[1]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"macro":"K","on":[1]}]},"expected_separator":{"strategy":"presence","generators":["CNOT"]}},
+    {"id":"KC","paper_label":"KC","lhs":{"wires":2,"ops":[{"macro":"K","on":[0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,1]},{"macro":"K","on":[0]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"CNOT":1},"swap":0}},
+    {"id":"CZ","paper_label":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"H3","on":[1]}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[1]},{"gen":"CNOT","on":[0,1]},{"gen":"S","on":[1]},{"gen":"S","on":[1]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,1]}]},"expected_separator":{"strategy":"counting","modulus":3,"weights":{"S":1},"swap":0}},
+    {"id":"B","paper_label":"B","lhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,0]},{"gen":"CNOT","on":[1,0]},{"macro":"K","on":[0]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{},"swap":1}},
+    {"id":"I","paper_label":"I","lhs":{"wires":3,"ops":[{"gen":"CNOT","on":[1,2]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,2]}]},"rhs":{"wires":3,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,2]}]},"expected_separator":null}
+  ]
+}

@@ -1,0 +1,1713 @@
+{
+  "name": "Real-Clifford+CH (Figure 4)",
+  "dimension": 2,
+  "source": {
+    "paper": "arXiv:2602.06644",
+    "title": "A Complete Equational Theory for Real-Clifford+CH Quantum Circuits",
+    "figure": 4,
+    "url": "https://arxiv.org/abs/2602.06644"
+  },
+  "structural_operations": {
+    "swap": {
+      "term": {
+        "perm": [
+          1,
+          0
+        ]
+      },
+      "note": "PROP symmetry; structural permutations are not primitive gates."
+    }
+  },
+  "generators": [
+    {
+      "name": "H",
+      "source": 1,
+      "target": 1,
+      "matrix": [
+        [
+          0.7071067811865476,
+          0.7071067811865476
+        ],
+        [
+          0.7071067811865476,
+          -0.7071067811865476
+        ]
+      ]
+    },
+    {
+      "name": "Z",
+      "source": 1,
+      "target": 1,
+      "matrix": [
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          -1
+        ]
+      ]
+    },
+    {
+      "name": "CZ",
+      "source": 2,
+      "target": 2,
+      "matrix": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          -1
+        ]
+      ]
+    },
+    {
+      "name": "CH",
+      "source": 2,
+      "target": 2,
+      "matrix": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.7071067811865476,
+          0.7071067811865476
+        ],
+        [
+          0,
+          0,
+          0.7071067811865476,
+          -0.7071067811865476
+        ]
+      ]
+    }
+  ],
+  "macros": {
+    "X": {
+      "type": [
+        1,
+        1
+      ],
+      "body": {
+        "wires": 1,
+        "ops": [
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "Z_zero": {
+      "type": [
+        1,
+        1
+      ],
+      "body": {
+        "wires": 1,
+        "ops": [
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "CZ_zero": {
+      "type": [
+        2,
+        2
+      ],
+      "body": {
+        "wires": 2,
+        "ops": [
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "CH_zero": {
+      "type": [
+        2,
+        2
+      ],
+      "body": {
+        "wires": 2,
+        "ops": [
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "ZX": {
+      "type": [
+        1,
+        1
+      ],
+      "body": {
+        "wires": 1,
+        "ops": [
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "XZ": {
+      "type": [
+        1,
+        1
+      ],
+      "body": {
+        "wires": 1,
+        "ops": [
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "macro": "X",
+            "on": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "MCZX_2": {
+      "type": [
+        3,
+        3
+      ],
+      "body": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "MCXZ_2": {
+      "type": [
+        3,
+        3
+      ],
+      "body": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "P_pair": {
+      "type": [
+        2,
+        2
+      ],
+      "body": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              1
+            ]
+          },
+          {
+            "perm": [
+              1,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "MCZ_pad_3": {
+      "type": [
+        3,
+        3
+      ],
+      "body": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "MCZ_pad_4": {
+      "type": [
+        4,
+        4
+      ],
+      "body": {
+        "wires": 4,
+        "ops": [
+          {
+            "macro": "MCZX_2",
+            "on": [
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              3
+            ]
+          },
+          {
+            "macro": "MCXZ_2",
+            "on": [
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              3
+            ]
+          }
+        ]
+      }
+    },
+    "MCZ_pad_5": {
+      "type": [
+        5,
+        5
+      ],
+      "body": {
+        "wires": 5,
+        "ops": [
+          {
+            "macro": "MCZX_2",
+            "on": [
+              2,
+              3,
+              4
+            ]
+          },
+          {
+            "macro": "MCZ_pad_4",
+            "on": [
+              0,
+              1,
+              4,
+              3
+            ]
+          },
+          {
+            "macro": "MCXZ_2",
+            "on": [
+              2,
+              3,
+              4
+            ]
+          },
+          {
+            "macro": "MCZ_pad_4",
+            "on": [
+              0,
+              1,
+              4,
+              3
+            ]
+          }
+        ]
+      }
+    },
+    "MCZ_pad_6": {
+      "type": [
+        6,
+        6
+      ],
+      "body": {
+        "wires": 6,
+        "ops": [
+          {
+            "macro": "MCZX_2",
+            "on": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "macro": "MCZ_pad_5",
+            "on": [
+              0,
+              1,
+              2,
+              5,
+              4
+            ]
+          },
+          {
+            "macro": "MCXZ_2",
+            "on": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "macro": "MCZ_pad_5",
+            "on": [
+              0,
+              1,
+              2,
+              5,
+              4
+            ]
+          }
+        ]
+      }
+    },
+    "MCZ_pad_7": {
+      "type": [7, 7],
+      "body": {
+        "wires": 7,
+        "ops": [
+          {"macro": "MCZX_2", "on": [4, 5, 6]},
+          {"macro": "MCZ_pad_6", "on": [0, 1, 2, 3, 6, 5]},
+          {"macro": "MCXZ_2", "on": [4, 5, 6]},
+          {"macro": "MCZ_pad_6", "on": [0, 1, 2, 3, 6, 5]}
+        ]
+      }
+    },
+    "MCZ_pad_8": {
+      "type": [8, 8],
+      "body": {
+        "wires": 8,
+        "ops": [
+          {"macro": "MCZX_2", "on": [5, 6, 7]},
+          {"macro": "MCZ_pad_7", "on": [0, 1, 2, 3, 4, 7, 6]},
+          {"macro": "MCXZ_2", "on": [5, 6, 7]},
+          {"macro": "MCZ_pad_7", "on": [0, 1, 2, 3, 4, 7, 6]}
+        ]
+      }
+    },
+    "MCZ_pad_9": {
+      "type": [9, 9],
+      "body": {
+        "wires": 9,
+        "ops": [
+          {"macro": "MCZX_2", "on": [6, 7, 8]},
+          {"macro": "MCZ_pad_8", "on": [0, 1, 2, 3, 4, 5, 8, 7]},
+          {"macro": "MCXZ_2", "on": [6, 7, 8]},
+          {"macro": "MCZ_pad_8", "on": [0, 1, 2, 3, 4, 5, 8, 7]}
+        ]
+      }
+    },
+    "MCZ_pad_10": {
+      "type": [10, 10],
+      "body": {
+        "wires": 10,
+        "ops": [
+          {"macro": "MCZX_2", "on": [7, 8, 9]},
+          {"macro": "MCZ_pad_9", "on": [0, 1, 2, 3, 4, 5, 6, 9, 8]},
+          {"macro": "MCXZ_2", "on": [7, 8, 9]},
+          {"macro": "MCZ_pad_9", "on": [0, 1, 2, 3, 4, 5, 6, 9, 8]}
+        ]
+      }
+    }
+  },
+  "equation_schemas": [
+    {
+      "family": "19",
+      "parameter": "n",
+      "n_min": 5,
+      "description": "Z on the padded wire commutes with the recursively defined (n-1)-controlled Z shortcut."
+    }
+  ],
+  "notes": [
+    "Composition and compact operation lists are in left-to-right execution order.",
+    "Rules (1)-(18) are the non-structural equations of Figure 4; PROP axioms are provided by the term language rather than duplicated here.",
+    "Figure 4 rule (19) is infinite. This file materializes exact evaluable instances for n=5 through n=10 and records the full n>=5 schema as metadata.",
+    "The P_pair and recursively padded multi-controlled-Z shortcuts are expanded solely into H, Z, CZ, CH, and structural permutations."
+  ],
+  "equations": [
+    {
+      "id": "1",
+      "label": "(1)",
+      "arity": 1,
+      "lhs": {
+        "wires": 1,
+        "ops": [
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "id": 1
+      }
+    },
+    {
+      "id": "2",
+      "label": "(2)",
+      "arity": 1,
+      "lhs": {
+        "wires": 1,
+        "ops": [
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "id": 1
+      }
+    },
+    {
+      "id": "3",
+      "label": "(3)",
+      "arity": 1,
+      "lhs": {
+        "wires": 1,
+        "ops": [
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "id": 1
+      }
+    },
+    {
+      "id": "5",
+      "label": "(5)",
+      "arity": 2,
+      "lhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "id": 2
+      }
+    },
+    {
+      "id": "6",
+      "label": "(6)",
+      "arity": 2,
+      "lhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "Z",
+            "on": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "7",
+      "label": "(7)",
+      "arity": 2,
+      "lhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "CH_zero",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "H",
+            "on": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "8",
+      "label": "(8)",
+      "arity": 2,
+      "lhs": {
+        "perm": [
+          1,
+          0
+        ]
+      },
+      "rhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              1
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              1
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "10",
+      "label": "(10)",
+      "arity": 2,
+      "lhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "11",
+      "label": "(11)",
+      "arity": 2,
+      "lhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 2,
+        "ops": [
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "H",
+            "on": [
+              0
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "12",
+      "label": "(12)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "13",
+      "label": "(13)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "14",
+      "label": "(14)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "15",
+      "label": "(15)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "16",
+      "label": "(16)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "17",
+      "label": "(17)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "macro": "CZ_zero",
+            "on": [
+              0,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "18",
+      "label": "(18)",
+      "arity": 3,
+      "lhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "gen": "CZ",
+            "on": [
+              0,
+              1
+            ]
+          },
+          {
+            "macro": "P_pair",
+            "on": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 3,
+        "ops": [
+          {
+            "macro": "P_pair",
+            "on": [
+              1,
+              2
+            ]
+          },
+          {
+            "gen": "CH",
+            "on": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "19_n5",
+      "label": "(19), n=5",
+      "arity": 5,
+      "family": "19",
+      "schema": {
+        "n_min": 5,
+        "n": 5
+      },
+      "lhs": {
+        "wires": 5,
+        "ops": [
+          {
+            "gen": "Z",
+            "on": [
+              4
+            ]
+          },
+          {
+            "macro": "MCZ_pad_5",
+            "on": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 5,
+        "ops": [
+          {
+            "macro": "MCZ_pad_5",
+            "on": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              4
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "19_n6",
+      "label": "(19), n=6",
+      "arity": 6,
+      "family": "19",
+      "schema": {
+        "n_min": 5,
+        "n": 6
+      },
+      "lhs": {
+        "wires": 6,
+        "ops": [
+          {
+            "gen": "Z",
+            "on": [
+              5
+            ]
+          },
+          {
+            "macro": "MCZ_pad_6",
+            "on": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        ]
+      },
+      "rhs": {
+        "wires": 6,
+        "ops": [
+          {
+            "macro": "MCZ_pad_6",
+            "on": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "gen": "Z",
+            "on": [
+              5
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "19_n7",
+      "label": "(19), n=7",
+      "arity": 7,
+      "family": "19",
+      "schema": {"n_min": 5, "n": 7},
+      "lhs": {
+        "wires": 7,
+        "ops": [
+          {"gen": "Z", "on": [6]},
+          {"macro": "MCZ_pad_7", "on": [0, 1, 2, 3, 4, 5, 6]}
+        ]
+      },
+      "rhs": {
+        "wires": 7,
+        "ops": [
+          {"macro": "MCZ_pad_7", "on": [0, 1, 2, 3, 4, 5, 6]},
+          {"gen": "Z", "on": [6]}
+        ]
+      }
+    },
+    {
+      "id": "19_n8",
+      "label": "(19), n=8",
+      "arity": 8,
+      "family": "19",
+      "schema": {"n_min": 5, "n": 8},
+      "lhs": {
+        "wires": 8,
+        "ops": [
+          {"gen": "Z", "on": [7]},
+          {"macro": "MCZ_pad_8", "on": [0, 1, 2, 3, 4, 5, 6, 7]}
+        ]
+      },
+      "rhs": {
+        "wires": 8,
+        "ops": [
+          {"macro": "MCZ_pad_8", "on": [0, 1, 2, 3, 4, 5, 6, 7]},
+          {"gen": "Z", "on": [7]}
+        ]
+      }
+    },
+    {
+      "id": "19_n9",
+      "label": "(19), n=9",
+      "arity": 9,
+      "family": "19",
+      "schema": {"n_min": 5, "n": 9},
+      "lhs": {
+        "wires": 9,
+        "ops": [
+          {"gen": "Z", "on": [8]},
+          {"macro": "MCZ_pad_9", "on": [0, 1, 2, 3, 4, 5, 6, 7, 8]}
+        ]
+      },
+      "rhs": {
+        "wires": 9,
+        "ops": [
+          {"macro": "MCZ_pad_9", "on": [0, 1, 2, 3, 4, 5, 6, 7, 8]},
+          {"gen": "Z", "on": [8]}
+        ]
+      }
+    },
+    {
+      "id": "19_n10",
+      "label": "(19), n=10",
+      "arity": 10,
+      "family": "19",
+      "schema": {"n_min": 5, "n": 10},
+      "lhs": {
+        "wires": 10,
+        "ops": [
+          {"gen": "Z", "on": [9]},
+          {"macro": "MCZ_pad_10", "on": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}
+        ]
+      },
+      "rhs": {
+        "wires": 10,
+        "ops": [
+          {"macro": "MCZ_pad_10", "on": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
+          {"gen": "Z", "on": [9]}
+        ]
+      }
+    }
+  ],
+  "removed_rules": [
+    "4",
+    "9"
+  ]
+}

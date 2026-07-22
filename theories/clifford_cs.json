@@ -1,0 +1,34 @@
+{
+  "name": "Qubit Clifford+CS (Figure 6)",
+  "wire_dimension": 2,
+  "source": {"paper":"arXiv:2602.09874","figure":6,"minimality_scope":"up to 2 wires"},
+  "generators": [
+    {"name":"omega","inputs":0,"outputs":0,"matrix":[["0.7071067811865476+0.7071067811865475i"]]},
+    {"name":"H","inputs":1,"outputs":1,"matrix":[[0.7071067811865476,0.7071067811865476],[0.7071067811865476,-0.7071067811865476]]},
+    {"name":"S","inputs":1,"outputs":1,"matrix":[[1,0],[0,"i"]]},
+    {"name":"CS","inputs":2,"outputs":2,"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,"i"]]}
+  ],
+  "macros": {
+    "Z":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]}]}},
+    "X":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"macro":"Z","on":[0]},{"gen":"H","on":[0]}]}},
+    "S_dagger":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]}]}},
+    "omega_dagger":{"type":[0,0],"body":{"wires":0,"ops":[{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]}]}},
+    "CNOT":{"type":[2,2],"body":{"wires":2,"ops":[{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]}]}}
+  },
+  "equations": [
+    {"id":"omega8","paper_label":"omega^8","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0},"expected_separator":{"strategy":"presence","generators":["omega"]}},
+    {"id":"H2","paper_label":"H^2","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["H"]}},
+    {"id":"S4","paper_label":"S^4","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["S"]}},
+    {"id":"E","paper_label":"E","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"S","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"macro":"S_dagger","on":[0]},{"gen":"H","on":[0]},{"macro":"S_dagger","on":[0]}]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"H":1},"swap":0}},
+    {"id":"CPh","paper_label":"CPh","lhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":[0]}]},"expected_separator":{"strategy":"presence","generators":["CS"]}},
+    {"id":"CSr","paper_label":"CSr","lhs":{"wires":2,"ops":[{"gen":"CS","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CS","on":[0,1]},{"perm":[1,0]}]},"expected_separator":{"strategy":"substitution","generator":"CS","replacement":{"wires":2,"ops":[{"gen":"CS","on":[0,1]},{"macro":"Z","on":[1]}]},"replacement_label":"CS; Z_1"}},
+    {"id":"B","paper_label":"B","lhs":{"wires":2,"ops":[{"macro":"CNOT","on":[0,1]},{"macro":"CNOT","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"macro":"CNOT","on":[0,1]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{},"swap":1}},
+    {"id":"XCS","paper_label":"XCS","lhs":{"wires":2,"ops":[{"macro":"X","on":[0]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"macro":"X","on":[0]},{"gen":"S","on":[1]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"S":1,"H":1},"swap":0}},
+    {"id":"CE","paper_label":"CE","lhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"gen":"H","on":[0]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[0]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CS","on":[0,1]},{"gen":"H","on":[0]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[0]},{"gen":"S","on":[0]}]},"expected_separator":{"strategy":"substitution","generator":"CS","replacement":{"wires":2,"ops":[{"gen":"CS","on":[0,1]},{"macro":"Z","on":[0]},{"macro":"Z","on":[1]}]},"replacement_label":"CS; Z_0; Z_1"}},
+    {"id":"I","paper_label":"I","lhs":{"wires":3,"ops":[{"macro":"CNOT","on":[1,2]},{"macro":"CNOT","on":[0,1]},{"macro":"CNOT","on":[0,2]}]},"rhs":{"wires":3,"ops":[{"macro":"CNOT","on":[0,1]},{"macro":"CNOT","on":[1,2]}]},"expected_separator":{"strategy":"determinant","k":2}},
+    {"id":"SH_0","paper_label":"SH_0","family":{"id":"SH_k","parameter":"k","value":0,"domain":[0,1,2,3]},"lhs":{"wires":3,"ops":[{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]}]},"rhs":{"wires":3,"ops":[{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]}]},"expected_separator":null},
+    {"id":"SH_1","paper_label":"SH_1","family":{"id":"SH_k","parameter":"k","value":1,"domain":[0,1,2,3]},"lhs":{"wires":3,"ops":[{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":3,"ops":[{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]}]},"expected_separator":null},
+    {"id":"SH_2","paper_label":"SH_2","family":{"id":"SH_k","parameter":"k","value":2,"domain":[0,1,2,3]},"lhs":{"wires":3,"ops":[{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":3,"ops":[{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]}]},"expected_separator":null},
+    {"id":"SH_3","paper_label":"SH_3","family":{"id":"SH_k","parameter":"k","value":3,"domain":[0,1,2,3]},"lhs":{"wires":3,"ops":[{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]}]},"rhs":{"wires":3,"ops":[{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"CS","on":[0,1]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"H","on":[1]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]},{"gen":"CS","on":[1,2]}]},"expected_separator":null}
+  ]
+}

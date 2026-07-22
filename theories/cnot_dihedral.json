@@ -1,0 +1,30 @@
+{
+  "name": "CNOT-dihedral (Figure 7)",
+  "wire_dimension": 2,
+  "source": {"paper":"arXiv:2602.09874","figure":7,"minimality_scope":"all arities"},
+  "generators": [
+    {"name":"omega","inputs":0,"outputs":0,"matrix":[["0.7071067811865476+0.7071067811865475i"]]},
+    {"name":"X","inputs":1,"outputs":1,"matrix":[[0,1],[1,0]]},
+    {"name":"T","inputs":1,"outputs":1,"matrix":[[1,0],[0,"0.7071067811865476+0.7071067811865475i"]]},
+    {"name":"CNOT","inputs":2,"outputs":2,"matrix":[[1,0,0,0],[0,1,0,0],[0,0,0,1],[0,0,1,0]]}
+  ],
+  "macros": {
+    "Z":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]}]}},
+    "S":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]}]}},
+    "CT":{"type":[2,2],"body":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"T","on":[1]},{"gen":"CNOT","on":[0,1]}]}},
+    "CCT":{"type":[3,3],"body":{"wires":3,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,2]},{"gen":"T","on":[2]},{"gen":"CNOT","on":[1,2]},{"gen":"CNOT","on":[0,1]}]}}
+  },
+  "equations": [
+    {"id":"omega8","paper_label":"omega^8","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0},"expected_separator":{"strategy":"presence","generators":["omega"]}},
+    {"id":"X2","paper_label":"X^2","lhs":{"wires":1,"ops":[{"gen":"X","on":[0]},{"gen":"X","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["X"]}},
+    {"id":"T8","paper_label":"T^8","lhs":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]}]},"rhs":{"id":1},"expected_separator":{"strategy":"presence","generators":["T"]}},
+    {"id":"TX","paper_label":"TX","lhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"X","on":[0]}]}]},"rhs":{"wires":1,"ops":[{"gen":"X","on":[0]},{"gen":"T","on":[0]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"omega":1},"swap":0}},
+    {"id":"XC","paper_label":"XC","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"X","on":[1]}]},"rhs":{"wires":2,"ops":[{"gen":"X","on":[0]},{"gen":"CNOT","on":[0,1]},{"gen":"X","on":[0]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"X":1},"swap":0}},
+    {"id":"B","paper_label":"B","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT","on":[0,1]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{},"swap":1}},
+    {"id":"ZC","paper_label":"ZC","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"macro":"Z","on":[0]}]},"rhs":{"wires":2,"ops":[{"macro":"Z","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"Z","on":[1]}]},"expected_separator":{"strategy":"counting","modulus":8,"weights":{"T":1,"omega":2},"swap":0}},
+    {"id":"CPh","paper_label":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"T","on":[0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"T","on":[0]}]},"expected_separator":{"strategy":"presence","generators":["CNOT"]}},
+    {"id":"I","paper_label":"I","lhs":{"wires":3,"ops":[{"gen":"CNOT","on":[1,2]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,2]}]},"rhs":{"wires":3,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,2]}]},"expected_separator":{"strategy":"counting","modulus":2,"weights":{"CNOT":1},"swap":1}},
+    {"id":"C2T","paper_label":"C^2T","lhs":{"wires":3,"ops":[{"macro":"CCT","on":[0,1,2]},{"macro":"CCT","on":[0,1,2]}]},"rhs":{"wires":3,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"macro":"CT","on":[0,1]},{"macro":"CT","on":[0,1]},{"macro":"CT","on":[0,2]},{"macro":"CT","on":[0,2]},{"macro":"CT","on":[1,2]},{"macro":"CT","on":[1,2]}]},"expected_separator":{"strategy":"counting","modulus":4,"weights":{"T":1,"omega":2},"swap":0}},
+    {"id":"C3T","paper_label":"C^3T","lhs":{"wires":4,"ops":[{"gen":"CNOT","on":[0,1]},{"macro":"CCT","on":[1,2,3]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":4,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[1]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[2]},{"gen":"T","on":[3]},{"gen":"T","on":[3]},{"gen":"T","on":[3]},{"gen":"T","on":[3]},{"gen":"T","on":[3]},{"macro":"CT","on":[0,1]},{"macro":"CT","on":[0,1]},{"macro":"CT","on":[0,1]},{"macro":"CT","on":[0,2]},{"macro":"CT","on":[0,2]},{"macro":"CT","on":[0,2]},{"macro":"CT","on":[0,3]},{"macro":"CT","on":[0,3]},{"macro":"CT","on":[0,3]},{"macro":"CT","on":[1,2]},{"macro":"CT","on":[1,2]},{"macro":"CT","on":[1,2]},{"macro":"CT","on":[1,3]},{"macro":"CT","on":[1,3]},{"macro":"CT","on":[1,3]},{"macro":"CT","on":[2,3]},{"macro":"CT","on":[2,3]},{"macro":"CT","on":[2,3]},{"macro":"CCT","on":[0,1,2]},{"macro":"CCT","on":[0,1,3]},{"macro":"CCT","on":[0,2,3]},{"macro":"CCT","on":[1,2,3]}]},"expected_separator":{"strategy":"determinant","k":3}}
+  ]
+}

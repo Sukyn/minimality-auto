@@ -1,0 +1,26 @@
+{
+  "name": "Real Clifford (Figure 3)",
+  "wire_dimension": 2,
+  "source": {"paper": "arXiv:2602.09874", "figure": 3, "minimality_scope": "all arities"},
+  "generators": [
+    {"name": "minus", "inputs": 0, "outputs": 0, "matrix": [[-1]]},
+    {"name": "H", "inputs": 1, "outputs": 1, "matrix": [[0.7071067811865476, 0.7071067811865476], [0.7071067811865476, -0.7071067811865476]]},
+    {"name": "Z", "inputs": 1, "outputs": 1, "matrix": [[1, 0], [0, -1]]},
+    {"name": "CNOT", "inputs": 2, "outputs": 2, "matrix": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]}
+  ],
+  "macros": {
+    "X": {"type": [1, 1], "body": {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"gen": "Z", "on": [0]}, {"gen": "H", "on": [0]}]}}
+  },
+  "equations": [
+    {"id": "minus2", "paper_label": "-^2", "lhs": {"tensor": [{"gen": "minus"}, {"gen": "minus"}]}, "rhs": {"id": 0}, "expected_separator": {"strategy": "presence", "generators": ["minus"]}},
+    {"id": "H2", "paper_label": "H^2", "lhs": {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"gen": "H", "on": [0]}]}, "rhs": {"id": 1}, "expected_separator": {"strategy": "presence", "generators": ["H"]}},
+    {"id": "Z2", "paper_label": "Z^2", "lhs": {"wires": 1, "ops": [{"gen": "Z", "on": [0]}, {"gen": "Z", "on": [0]}]}, "rhs": {"id": 1}, "expected_separator": {"strategy": "presence", "generators": ["Z"]}},
+    {"id": "F", "paper_label": "F", "lhs": {"wires": 1, "ops": [{"gen": "Z", "on": [0]}, {"gen": "H", "on": [0]}, {"gen": "Z", "on": [0]}, {"gen": "H", "on": [0]}]}, "rhs": {"tensor": [{"gen": "minus"}, {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"gen": "Z", "on": [0]}, {"gen": "H", "on": [0]}, {"gen": "Z", "on": [0]}]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {"minus": 1}, "swap": 0}},
+    {"id": "CX2", "paper_label": "CX^2", "lhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [0, 1]}]}, "rhs": {"id": 2}, "expected_separator": {"strategy": "presence", "generators": ["CNOT"]}},
+    {"id": "B", "paper_label": "B", "lhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [1, 0]}]}, "rhs": {"wires": 2, "ops": [{"perm": [1, 0]}, {"gen": "CNOT", "on": [0, 1]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {}, "swap": 1}},
+    {"id": "ZC", "paper_label": "ZC", "lhs": {"wires": 2, "ops": [{"gen": "Z", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "Z", "on": [1]}]}, "rhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "Z", "on": [0]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {"Z": 1}, "swap": 0}},
+    {"id": "CZr", "paper_label": "CZr", "lhs": {"wires": 2, "ops": [{"gen": "H", "on": [0]}, {"gen": "H", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "H", "on": [0]}, {"gen": "H", "on": [1]}]}, "rhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [1, 0]}]}, "expected_separator": {"strategy": "substitution", "generator": "H", "replacement": {"id": 1}, "replacement_label": "identity"}},
+    {"id": "CF", "paper_label": "CF", "lhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "H", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "Z", "on": [1]}, {"gen": "H", "on": [1]}]}, "rhs": {"wires": 2, "ops": [{"gen": "H", "on": [1]}, {"gen": "Z", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "H", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}]}, "expected_separator": {"strategy": "substitution", "generator": "Z", "replacement": {"id": 1}, "replacement_label": "identity"}, "printed_rhs": {"wires": 2, "ops": [{"gen": "H", "on": [1]}, {"gen": "Z", "on": [1]}, {"gen": "H", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}]}, "semantic_note": "The embedded Figure 3 RHS omits the CNOT between Z and H. This five-operation repair is matrix-sound and preserves every Figure 8 separator."},
+    {"id": "I", "paper_label": "I", "lhs": {"wires": 3, "ops": [{"gen": "CNOT", "on": [1, 2]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [0, 2]}]}, "rhs": {"wires": 3, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [1, 2]}]}, "expected_separator": {"strategy": "determinant", "k": 2}}
+  ]
+}

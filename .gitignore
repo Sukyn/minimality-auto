@@ -1,0 +1,17 @@
+# Keep this repository intentionally small: ignore everything by default.
+*
+
+# Repository metadata and installation instructions.
+!.gitignore
+!README.md
+!pyproject.toml
+
+# Python tool source code only (never bytecode or cache directories).
+!src/
+!src/**/
+!src/**/*.py
+
+# JSON theory/fragments used as tool inputs.
+!theories/
+!theories/**/
+!theories/**/*.json

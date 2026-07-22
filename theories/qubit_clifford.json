@@ -1,0 +1,27 @@
+{
+  "name": "Qubit Clifford (Figure 2)",
+  "wire_dimension": 2,
+  "source": {"paper": "arXiv:2602.09874", "figure": 2, "minimality_scope": "all arities"},
+  "generators": [
+    {"name": "omega", "inputs": 0, "outputs": 0, "matrix": [["0.7071067811865476+0.7071067811865475i"]]},
+    {"name": "H", "inputs": 1, "outputs": 1, "matrix": [[0.7071067811865476, 0.7071067811865476], [0.7071067811865476, -0.7071067811865476]]},
+    {"name": "S", "inputs": 1, "outputs": 1, "matrix": [[1, 0], [0, "i"]]},
+    {"name": "CNOT", "inputs": 2, "outputs": 2, "matrix": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]}
+  ],
+  "macros": {
+    "Z": {"type": [1, 1], "body": {"wires": 1, "ops": [{"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}]}},
+    "X": {"type": [1, 1], "body": {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"macro": "Z", "on": [0]}, {"gen": "H", "on": [0]}]}},
+    "S_dagger": {"type": [1, 1], "body": {"wires": 1, "ops": [{"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}]}},
+    "omega_dagger": {"type": [0, 0], "body": {"wires": 0, "ops": [{"gen": "omega", "on": []}, {"gen": "omega", "on": []}, {"gen": "omega", "on": []}, {"gen": "omega", "on": []}, {"gen": "omega", "on": []}, {"gen": "omega", "on": []}, {"gen": "omega", "on": []}]}}
+  },
+  "equations": [
+    {"id": "omega8", "paper_label": "omega^8", "lhs": {"tensor": [{"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}, {"gen": "omega"}]}, "rhs": {"id": 0}, "expected_separator": {"strategy": "presence", "generators": ["omega"]}},
+    {"id": "H2", "paper_label": "H^2", "lhs": {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"gen": "H", "on": [0]}]}, "rhs": {"id": 1}, "expected_separator": {"strategy": "presence", "generators": ["H"]}},
+    {"id": "S4", "paper_label": "S^4", "lhs": {"wires": 1, "ops": [{"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}, {"gen": "S", "on": [0]}]}, "rhs": {"id": 1}, "expected_separator": {"strategy": "presence", "generators": ["S"]}},
+    {"id": "E", "paper_label": "E", "lhs": {"wires": 1, "ops": [{"gen": "H", "on": [0]}, {"gen": "S", "on": [0]}, {"gen": "H", "on": [0]}]}, "rhs": {"tensor": [{"gen": "omega"}, {"wires": 1, "ops": [{"macro": "S_dagger", "on": [0]}, {"gen": "H", "on": [0]}, {"macro": "S_dagger", "on": [0]}]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {"H": 1}, "swap": 0}},
+    {"id": "CPh", "paper_label": "CPh", "lhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "S", "on": [0]}, {"gen": "CNOT", "on": [0, 1]}]}, "rhs": {"wires": 2, "ops": [{"gen": "S", "on": [0]}]}, "expected_separator": {"strategy": "presence", "generators": ["CNOT"]}},
+    {"id": "B", "paper_label": "B", "lhs": {"wires": 2, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [1, 0]}]}, "rhs": {"wires": 2, "ops": [{"perm": [1, 0]}, {"gen": "CNOT", "on": [0, 1]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {}, "swap": 1}},
+    {"id": "CZ", "paper_label": "CZ", "lhs": {"wires": 2, "ops": [{"gen": "H", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "H", "on": [1]}]}, "rhs": {"wires": 2, "ops": [{"gen": "S", "on": [0]}, {"gen": "S", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}, {"macro": "S_dagger", "on": [1]}, {"gen": "CNOT", "on": [0, 1]}]}, "expected_separator": {"strategy": "counting", "modulus": 2, "weights": {"CNOT": 1}, "swap": 1}},
+    {"id": "I", "paper_label": "I", "lhs": {"wires": 3, "ops": [{"gen": "CNOT", "on": [1, 2]}, {"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [0, 2]}]}, "rhs": {"wires": 3, "ops": [{"gen": "CNOT", "on": [0, 1]}, {"gen": "CNOT", "on": [1, 2]}]}, "expected_separator": {"strategy": "determinant", "k": 2}}
+  ]
+}

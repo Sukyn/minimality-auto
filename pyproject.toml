@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minimality-auto"
+version = "0.1.0"
+description = "Small independence-separation searches for equational theories of PROPs"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+minimality-auto = "minimality_auto.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/minimality_auto"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
