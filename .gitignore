@@ -6,6 +6,11 @@
 !README.md
 !pyproject.toml
 
+# Project documentation.
+!docs/
+!docs/**/
+!docs/**/*.md
+
 # Python tool source code only (never bytecode or cache directories).
 !src/
 !src/**/
