@@ -7,8 +7,9 @@ from typing import Any, Iterator
 import numpy as np
 
 from ..core import primitive_occurrences, structural_permutation_parity
-from ..search import CandidateModel, Deadline, NotApplicable, relevant_equations
+from ..search import CandidateModel, Deadline, NotApplicable
 from .counting import _wire_parity_is_preserved
+from .presence import _primitive_names
 
 
 TAU = 2.0 * math.pi
@@ -65,11 +66,7 @@ def candidates(
     k = bound
     if k < 2:
         return
-    active: set[str] = set()
-    for equation in (*relevant_equations(theory, target), target):
-        deadline.check()
-        active.update(primitive_occurrences(equation.lhs, theory.macros))
-        active.update(primitive_occurrences(equation.rhs, theory.macros))
+    active = set(_primitive_names(theory, target, deadline))
     weights: dict[str, float] = {}
     defaulted: list[str] = []
     for generator in theory.signature.values():

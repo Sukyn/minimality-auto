@@ -532,6 +532,26 @@ def _register_inline_generators(
         visited += 1
 
 
+def _generator_arities(theory: Any, target: Any, deadline: Deadline) -> dict[str, int]:
+    """Return declared and explicitly typed inline generator arities."""
+    signature = {
+        name: generator.inputs for name, generator in theory.signature.items()
+    }
+    terms = [
+        getattr(definition, "body", definition)
+        for definition in theory.macros.values()
+    ]
+    terms.extend(
+        side
+        for equation in theory.equations
+        for side in (equation.lhs, equation.rhs)
+    )
+    terms.extend((target.lhs, target.rhs))
+    for term in terms:
+        _register_inline_generators(term, signature, deadline)
+    return signature
+
+
 def candidates(
     theory: Any,
     target: Any,
@@ -549,20 +569,7 @@ def candidates(
     arity = equation_arity(target)
     if arity < 0:
         raise NotApplicable("permutation search requires a non-negative target arity")
-    declared_signature = {
-        name: generator.inputs
-        for name, generator in theory.signature.items()
-    }
-    for definition in theory.macros.values():
-        deadline.check()
-        body = getattr(definition, "body", definition)
-        _register_inline_generators(body, declared_signature, deadline)
-    for equation in theory.equations:
-        deadline.check()
-        _register_inline_generators(equation.lhs, declared_signature, deadline)
-        _register_inline_generators(equation.rhs, declared_signature, deadline)
-    _register_inline_generators(target.lhs, declared_signature, deadline)
-    _register_inline_generators(target.rhs, declared_signature, deadline)
+    declared_signature = _generator_arities(theory, target, deadline)
     others = relevant_equations(theory, target)
     equations = (*others, target)
     expanded: dict[str, tuple[Circuit, Circuit]] = {}
@@ -570,8 +577,6 @@ def candidates(
         deadline.check()
         left = expand_macros(equation.lhs, theory.macros)
         right = expand_macros(equation.rhs, theory.macros)
-        _register_inline_generators(left, declared_signature, deadline)
-        _register_inline_generators(right, declared_signature, deadline)
         expanded[str(equation.id)] = left, right
     signature = {
         name: width

@@ -17,11 +17,17 @@ def _wire_parity_is_preserved(theory: Any, *extra_terms: Any) -> bool:
     unnecessarily restrictive.
     """
 
-    def preserves(node: Any) -> bool:
-        if getattr(node, "kind", None) == "gen":
-            if int(node.inputs) % 2 != int(node.outputs) % 2:
+    def preserves(root: Any) -> bool:
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if (
+                getattr(node, "kind", None) == "gen"
+                and int(node.inputs) % 2 != int(node.outputs) % 2
+            ):
                 return False
-        return all(preserves(part) for part in getattr(node, "parts", ()))
+            pending.extend(getattr(node, "parts", ()))
+        return True
 
     if any(
         int(generator.inputs) % 2 != int(generator.outputs) % 2

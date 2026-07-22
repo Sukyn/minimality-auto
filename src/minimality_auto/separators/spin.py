@@ -158,17 +158,6 @@ def _commutator_data(
     return first_dim, second_dim, intersection_dim
 
 
-def _scaled_commutator_data(
-    data: tuple[int, int, int], copies: int
-) -> tuple[int, int, int]:
-    first_dim, second_dim, intersection_dim = data
-    return (
-        copies * first_dim,
-        copies * second_dim,
-        copies * intersection_dim,
-    )
-
-
 def _commutator_sign(data: tuple[int, int, int]) -> int:
     first_dim, second_dim, intersection_dim = data
     return -1 if (first_dim * second_dim - intersection_dim) % 2 else 1
@@ -180,8 +169,7 @@ def _find_cyclic_reversal_lifts(
     deadline: Deadline,
     matrix: Callable[[Circuit], np.ndarray],
     *,
-    copies: int = 1,
-    required_sign: int | None = None,
+    required_sign: int,
 ) -> tuple[int, int, int] | None:
     left_parts = _parts(expand_macros(equation.lhs, theory.macros))
     right_parts = _parts(expand_macros(equation.rhs, theory.macros))
@@ -195,11 +183,7 @@ def _find_cyclic_reversal_lifts(
         first = matrix(Circuit.compose(first_parts))
         second = matrix(Circuit.compose(second_parts))
         data = _commutator_data(first, second)
-        if data is not None and (
-            required_sign is None
-            or _commutator_sign(_scaled_commutator_data(data, copies))
-            == required_sign
-        ):
+        if data is not None and _commutator_sign(data) == required_sign:
             return data
     return None
 
@@ -268,7 +252,7 @@ def candidates(
             matrices[term] = _matrix(theory, term)
         return matrices[term]
 
-    retained_reversals: list[dict[str, Any]] = []
+    full_arity_reversals: list[dict[str, Any]] = []
     for equation in retained:
         deadline.check()
         if (
@@ -283,7 +267,15 @@ def candidates(
             raise NotApplicable(
                 "another retained equation is too large for this Spin certificate"
             )
-        if complement >= 2:
+        if complement >= 1:
+            # With one outside wire, every local primitive is already even:
+            # the ambient primitive guard gives
+            # 2**((arity - 1) - primitive_width), a multiple of four, local
+            # copies.  The same holds for adjacent SWAP.  Hence the two-block
+            # lift is multiplicative for arbitrary compositions, tensors and
+            # permutations; it also sends the two possible local lifts u and
+            # -u to the same value.  Ordinary matrix equality is sufficient.
+            # More outside wires are the usual block-lift case.
             left = matrix(equation.lhs)
             right = matrix(equation.rhs)
             deadline.check()
@@ -292,13 +284,11 @@ def candidates(
                     f"retained equation {equation_id(equation)!r} is not matrix-sound"
                 )
         else:
-            copies = 1 << complement
             data = _find_cyclic_reversal_lifts(
                 theory,
                 equation,
                 deadline,
                 matrix,
-                copies=copies,
                 required_sign=1,
             )
             if data is None:
@@ -306,12 +296,11 @@ def candidates(
                     f"retained equation {equation_id(equation)!r} has no "
                     "certified trivial block-lift sign"
                 )
-            retained_reversals.append(
+            full_arity_reversals.append(
                 {
                     "equation": equation_id(equation),
-                    "copies": copies,
-                    "base_minus_dimensions": [data[0], data[1]],
-                    "base_intersection_dimension": data[2],
+                    "minus_dimensions": [data[0], data[1]],
+                    "intersection_dimension": data[2],
                     "commutator_sign": 1,
                 }
             )
@@ -330,10 +319,10 @@ def candidates(
         f"ambient-{arity}-wire Spin-cover invariant: the commuting target "
         "factors lift with sign -1"
     )
-    if retained_reversals:
+    if full_arity_reversals:
         description += (
-            f"; {len(retained_reversals)} retained cyclic reversal(s) "
-            "scale to sign +1"
+            f"; {len(full_arity_reversals)} full-arity retained "
+            "reversal(s) have sign +1"
         )
 
     yield Separation(
@@ -348,7 +337,7 @@ def candidates(
             "minus_dimensions": [first_dim, second_dim],
             "intersection_dimension": intersection_dim,
             "commutator_sign": -1,
-            "retained_cyclic_reversals": retained_reversals,
+            "full_arity_retained_reversals": full_arity_reversals,
         },
         checked_equations=tuple(equation_id(equation) for equation in retained),
         lhs_value={"orthogonal_value": "same", "spin_lift": "u"},

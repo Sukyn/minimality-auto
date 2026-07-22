@@ -5,7 +5,7 @@ Search for PROP-compatible invariants separating one equation from the other equ
 ## Install
 
 ```powershell
-python -m pip install -e .
+python -m pip install -e ".[test]"
 ```
 
 ## Run

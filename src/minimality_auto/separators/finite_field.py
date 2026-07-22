@@ -176,8 +176,8 @@ def templates(
         if deadline is not None and index % 128 == 0:
             deadline.check()
         size = dimension**width
-        generator = theory.signature[name]
-        if name not in active or generator.matrix is None:
+        generator = theory.signature[name] if name in theory.signature else None
+        if name not in active or generator is None or generator.matrix is None:
             raw = identity(size)
         else:
             try:

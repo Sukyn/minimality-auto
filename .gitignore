@@ -16,6 +16,11 @@
 !src/**/
 !src/**/*.py
 
+# Test source code.
+!tests/
+!tests/**/
+!tests/**/*.py
+
 # JSON theory/fragments used as tool inputs.
 !theories/
 !theories/**/

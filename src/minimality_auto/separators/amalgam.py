@@ -27,6 +27,7 @@ from .finite_field import (
 from .finite_model import (
     _display_name,
     _generator,
+    _generator_arities,
     _prop_constraints,
     _require_endomorphic_theory,
     _swap,
@@ -638,9 +639,9 @@ def candidates(
             f"amalgam matrix dimension exceeds {max_amalgam_matrix_dimension}"
         )
     signature = {
-        name: generator.inputs
-        for name, generator in theory.signature.items()
-        if generator.inputs <= arity
+        name: width
+        for name, width in _generator_arities(theory, target, deadline).items()
+        if width <= arity
     }
     relations, prop, target_words = _relations(
         theory, target, arity, signature, deadline
