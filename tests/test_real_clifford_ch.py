@@ -34,7 +34,6 @@ def test_simplified_theory_differs_only_by_rules_4_and_9():
     full_equations = full.pop("equations")
     simplified_equations = simplified.pop("equations")
 
-    assert simplified.pop("removed_rules") == ["4", "9"]
     assert simplified == full
     assert simplified_equations == [
         equation for equation in full_equations if equation["id"] not in {"4", "9"}

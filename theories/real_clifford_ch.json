@@ -1,23 +1,12 @@
 {
   "name": "Real-Clifford+CH (Figure 4)",
-  "dimension": 2,
-  "source": {
-    "paper": "arXiv:2602.06644",
-    "title": "A Complete Equational Theory for Real-Clifford+CH Quantum Circuits",
-    "figure": 4,
-    "url": "https://arxiv.org/abs/2602.06644"
-  },
-  "structural_operations": {
-    "swap": {
-      "term": {"perm": [1, 0]},
-      "note": "PROP symmetry; structural permutations are not primitive gates."
-    }
-  },
+  "wire_dimension": 2,
+  "source": "https://arxiv.org/abs/2602.06644",
   "generators": [
     {
       "name": "H",
-      "source": 1,
-      "target": 1,
+      "inputs": 1,
+      "outputs": 1,
       "matrix": [
         [0.7071067811865476, 0.7071067811865476],
         [0.7071067811865476, -0.7071067811865476]
@@ -25,14 +14,14 @@
     },
     {
       "name": "Z",
-      "source": 1,
-      "target": 1,
+      "inputs": 1,
+      "outputs": 1,
       "matrix": [[1, 0], [0, -1]]
     },
     {
       "name": "CZ",
-      "source": 2,
-      "target": 2,
+      "inputs": 2,
+      "outputs": 2,
       "matrix": [
         [1, 0, 0, 0],
         [0, 1, 0, 0],
@@ -42,8 +31,8 @@
     },
     {
       "name": "CH",
-      "source": 2,
-      "target": 2,
+      "inputs": 2,
+      "outputs": 2,
       "matrix": [
         [1, 0, 0, 0],
         [0, 1, 0, 0],
@@ -251,20 +240,6 @@
       }
     }
   },
-  "equation_schemas": [
-    {
-      "family": "19",
-      "parameter": "n",
-      "n_min": 5,
-      "description": "Z on the padded wire commutes with the recursively defined (n-1)-controlled Z shortcut."
-    }
-  ],
-  "notes": [
-    "Composition and compact operation lists are in left-to-right execution order.",
-    "Rules (1)-(18) are the non-structural equations of Figure 4; PROP axioms are provided by the term language rather than duplicated here.",
-    "Figure 4 rule (19) is infinite. This file materializes exact evaluable instances for n=5 through n=10 and records the full n>=5 schema as metadata.",
-    "The P_pair and recursively padded multi-controlled-Z shortcuts are expanded solely into H, Z, CZ, CH, and structural permutations."
-  ],
   "equations": [
     {
       "id": "1",
