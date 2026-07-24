@@ -20,6 +20,7 @@ python -m minimality_auto THEORY.json --counting --max-modulus 8
 python -m minimality_auto THEORY.json --finite-model --max-permutation-degree 5
 python -m minimality_auto THEORY.json --amalgam --max-amalgam-prime 11
 python -m minimality_auto THEORY.json --spin-cover
+python -m minimality_auto THEORY.json --block-normal-form
 python -m minimality_auto THEORY.json --determinant
 python -m minimality_auto THEORY.json --substitution --max-depth 3
 
@@ -49,7 +50,7 @@ Run `python -m minimality_auto --help` for every option.
 }
 ```
 
-Generator types are `[inputs, outputs]`. Terms use `gen`, `macro`, `id`, `perm`, `compose`, or `tensor`; composition is listed in execution order. Matrices are optional and are used by the amalgam, determinant, substitution, and Spin-cover heuristics. More complete inputs are available in [`theories/`](theories).
+Generator types are `[inputs, outputs]`. Terms use `gen`, `macro`, `id`, `perm`, `compose`, or `tensor`; composition is listed in execution order. Matrices are optional and may be dense arrays or `{"diagonal":[...]}`. They are used by the amalgam, block-normal-form, determinant, substitution, and Spin-cover heuristics. More complete inputs are available in [`theories/`](theories).
 
 The finite-permutation heuristic currently supports endomorphic signatures only. Its PROP constraints are summarized in [`docs/permutation-models.md`](docs/permutation-models.md).
 
