@@ -1,0 +1,43 @@
+{
+  "name": "Multi-qudit Clifford, odd-prime presentation (d=3 instance)",
+  "wire_dimension": 3,
+  "source": {
+    "paper": "https://liqcs2026.github.io/assets/pdfs/LIQCS_2026_extended_abstract_26.pdf",
+    "figure": 1,
+    "dimension": 3,
+    "primitive_root": 2,
+    "T1_note": "At d=3 the printed T1 circuit is omega*M_2; the final omega^2 below enforces the stated definition M_g|x>=|2x>."
+  },
+  "generators": [
+    {"name":"omega","inputs":0,"outputs":0,"matrix":[["-0.5+0.8660254037844386i"]]},
+    {"name":"minus_one","inputs":0,"outputs":0,"matrix":[[-1]]},
+    {"name":"H","inputs":1,"outputs":1,"matrix":[["0+0.5773502691896258i","0+0.5773502691896258i","0+0.5773502691896258i"],["0+0.5773502691896258i","-0.5-0.2886751345948129i","0.5-0.2886751345948129i"],["0+0.5773502691896258i","0.5-0.2886751345948129i","-0.5-0.2886751345948129i"]]},
+    {"name":"S","inputs":1,"outputs":1,"matrix":{"diagonal":[1,1,"-0.5+0.8660254037844386i"]}},
+    {"name":"CZ","inputs":2,"outputs":2,"matrix":{"diagonal":[1,1,1,1,"-0.5+0.8660254037844386i","-0.5-0.8660254037844386i",1,"-0.5-0.8660254037844386i","-0.5+0.8660254037844386i"]}}
+  ],
+  "macros": {
+    "H2": {"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
+    "H3": {"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
+    "S_inv": {"type":[1,1],"body":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]}]}},
+    "Z": {"type":[1,1],"body":{"wires":1,"ops":[{"macro":"S_inv","on":[0]},{"macro":"H2","on":[0]},{"gen":"S","on":[0]},{"macro":"H2","on":[0]}]}},
+    "X": {"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"macro":"S_inv","on":[0]},{"macro":"H2","on":[0]},{"gen":"S","on":[0]},{"gen":"H","on":[0]}]}},
+    "M_g": {"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"macro":"S_inv","on":[0]},{"gen":"H","on":[0]},{"macro":"S_inv","on":[0]},{"gen":"H","on":[0]},{"macro":"S_inv","on":[0]},{"macro":"X","on":[0]},{"macro":"Z","on":[0]},{"macro":"Z","on":[0]},{"gen":"omega","on":[]},{"gen":"omega","on":[]}]}},
+    "CZ_inv": {"type":[2,2],"body":{"wires":2,"ops":[{"gen":"CZ","on":[0,1]},{"gen":"CZ","on":[0,1]}]}},
+    "CX": {"type":[2,2],"body":{"wires":2,"ops":[{"gen":"H","on":[0]},{"gen":"CZ","on":[0,1]},{"macro":"H3","on":[0]}]}},
+    "CX_inv": {"type":[2,2],"body":{"wires":2,"ops":[{"gen":"H","on":[0]},{"macro":"CZ_inv","on":[0,1]},{"macro":"H3","on":[0]}]}}
+  },
+  "equations": [
+    {"id":"C0","lhs":{"wires":0,"ops":[{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]}]},"rhs":{"id":0}},
+    {"id":"C1","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"id":1}},
+    {"id":"C2","lhs":{"macro":"H2"},"rhs":{"tensor":[{"gen":"minus_one"},{"macro":"M_g"}]}},
+    {"id":"C3_k2","lhs":{"wires":1,"ops":[{"macro":"M_g","on":[0]},{"macro":"M_g","on":[0]}]},"rhs":{"id":1}},
+    {"id":"C4","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"macro":"M_g","on":[0]}]},"rhs":{"wires":1,"ops":[{"macro":"M_g","on":[0]},{"gen":"S","on":[0]},{"macro":"Z","on":[0]}]}},
+    {"id":"C5","lhs":{"wires":1,"ops":[{"macro":"H2","on":[0]},{"gen":"S","on":[0]},{"macro":"H2","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"macro":"H2","on":[0]},{"gen":"S","on":[0]},{"macro":"H2","on":[0]}]}},
+    {"id":"C6","lhs":{"wires":2,"ops":[{"gen":"CZ","on":[0,1]},{"gen":"CZ","on":[0,1]},{"gen":"CZ","on":[0,1]}]},"rhs":{"id":2}},
+    {"id":"C8","lhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"gen":"CZ","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CZ","on":[0,1]},{"gen":"S","on":[0]}]}},
+    {"id":"C9","lhs":{"wires":2,"ops":[{"macro":"M_g","on":[0]},{"gen":"CZ","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CZ","on":[0,1]},{"gen":"CZ","on":[0,1]},{"macro":"M_g","on":[0]}]}},
+    {"id":"C18","lhs":{"wires":3,"ops":[{"macro":"CX","on":[1,0]},{"gen":"CZ","on":[1,2]}]},"rhs":{"wires":3,"ops":[{"gen":"CZ","on":[1,2]},{"macro":"CX","on":[1,0]},{"gen":"CZ","on":[0,2]}]}},
+    {"id":"CZ-decomp","lhs":{"gen":"CZ"},"rhs":{"wires":2,"ops":[{"macro":"CX","on":[0,1]},{"gen":"S","on":[0]},{"macro":"CX_inv","on":[0,1]},{"macro":"S_inv","on":[0]},{"macro":"S_inv","on":[1]}]}},
+    {"id":"SWAP-decomp","lhs":{"perm":[1,0]},"rhs":{"wires":2,"ops":[{"gen":"minus_one","on":[]},{"gen":"H","on":[0]},{"gen":"H","on":[1]},{"gen":"CZ","on":[0,1]},{"gen":"H","on":[0]},{"gen":"H","on":[1]},{"gen":"CZ","on":[0,1]},{"gen":"H","on":[0]},{"gen":"H","on":[1]},{"gen":"CZ","on":[0,1]}]}}
+  ]
+}
