@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import cmath
 import math
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 
-from ..core import primitive_occurrences, structural_permutation_parity
+from ..core import (
+    _wire_size_matches,
+    primitive_occurrences,
+    structural_permutation_parity,
+)
 from ..search import CandidateModel, Deadline, NotApplicable
-from .counting import _wire_parity_is_preserved
-from .presence import _primitive_names
+from .common import primitive_names, wire_parity_is_preserved
 
-
-TAU = 2.0 * math.pi
+PHASE_TOLERANCE = 1e-8
 
 
 def _phase(matrix: np.ndarray, dimension: int, arity: int) -> float:
@@ -20,13 +23,7 @@ def _phase(matrix: np.ndarray, dimension: int, arity: int) -> float:
     if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
         raise NotApplicable("endomorphism generator matrix must be square")
     size = matrix.shape[0]
-    if dimension == 1:
-        shape_is_valid = size == 1
-    else:
-        # If d**arity equals the observed (machine-sized) dimension, arity is
-        # at most its bit length.  This avoids constructing hostile huge ints.
-        shape_is_valid = arity <= size.bit_length() and dimension**arity == size
-    if not shape_is_valid:
+    if not _wire_size_matches(size, dimension, arity):
         raise NotApplicable(
             f"generator matrix dimension {size} is incompatible with arity {arity}"
         )
@@ -38,7 +35,7 @@ def _phase(matrix: np.ndarray, dimension: int, arity: int) -> float:
         raise NotApplicable("could not compute a generator determinant") from exc
     if not np.isfinite(log_absolute) or abs(sign) < 1e-10:
         raise NotApplicable("determinant model requires invertible generator matrices")
-    return cmath.phase(complex(sign)) % TAU
+    return cmath.phase(complex(sign)) % math.tau
 
 
 def _scale(dimension: int, exponent: int) -> float | None:
@@ -58,7 +55,7 @@ def candidates(
     *,
     bound: int,
     deadline: Deadline,
-    **_: Any,
+    context: Any = None,
 ) -> Iterator[CandidateModel]:
     dimension = int(getattr(theory, "wire_dimension", 2))
     if dimension < 1:
@@ -66,7 +63,7 @@ def candidates(
     k = bound
     if k < 2:
         return
-    active = set(_primitive_names(theory, target, deadline))
+    active = set(primitive_names(theory, target, deadline, context))
     weights: dict[str, float] = {}
     defaulted: list[str] = []
     for generator in theory.signature.values():
@@ -74,7 +71,7 @@ def candidates(
         matrix = getattr(generator, "matrix", None)
         source = int(generator.inputs)
         target_arity = int(generator.outputs)
-        name = str(getattr(generator, "name"))
+        name = str(generator.name)
         if name not in active:
             continue
         if source != target_arity or matrix is None:
@@ -95,25 +92,30 @@ def candidates(
             weights[name] = 0.0
             defaulted.append(name)
             continue
-        weights[name] = (scale * phase) % TAU
+        weights[name] = (scale * phase) % math.tau
 
     base_swap_is_odd = (dimension * (dimension - 1) // 2) % 2
     padding_is_odd = k == 2 or dimension % 2 == 1
     epsilon = math.pi if base_swap_is_odd and padding_is_odd else 0.0
-    if epsilon and not _wire_parity_is_preserved(theory, target.lhs, target.rhs):
+    if epsilon and not wire_parity_is_preserved(theory, target.lhs, target.rhs):
         # A sign-valued symmetry is not natural around parity-changing maps.
         # The trivial symmetry still gives a valid additive PROP model.
         epsilon = 0.0
 
     def evaluate(term: Any) -> float:
-        counts = primitive_occurrences(term, theory.macros)
-        value = sum(counts.get(name, 0) * phase for name, phase in weights.items())
-        value += structural_permutation_parity(term, theory.macros) * epsilon
-        return value % TAU
+        if context is None:
+            counts = primitive_occurrences(term, theory.macros)
+            parity = structural_permutation_parity(term, theory.macros)
+        else:
+            counts = context.occurrences_for(term, theory.macros)
+            parity = context.parity_for(term, theory.macros)
+        value = sum(counts[name] * phase for name, phase in weights.items())
+        value += parity * epsilon
+        return value % math.tau
 
     def equal(left: float, right: float) -> bool:
-        distance = (left - right + math.pi) % TAU - math.pi
-        return abs(distance) <= 1e-8
+        distance = (left - right + math.pi) % math.tau - math.pi
+        return abs(distance) <= PHASE_TOLERANCE
 
     if not any(abs(value) > 1e-10 for value in weights.values()) and not epsilon:
         return
@@ -124,15 +126,18 @@ def candidates(
     }
     yield CandidateModel(
         kind="determinant",
-        description=f"scaled determinant phase (dimension={dimension}, k={k})",
+        description=(
+            f"numerical scaled determinant phase (dimension={dimension}, k={k})"
+        ),
         parameters={
             "wire_dimension": dimension,
             "k": k,
             "generator_phases_over_pi": compact,
             "swap_phase_over_pi": epsilon / math.pi,
             "zero_weight_generators": defaulted,
+            "phase_tolerance": PHASE_TOLERANCE,
         },
         evaluator=evaluate,
         equality=equal,
-        key=(k,),
+        certified=False,
     )

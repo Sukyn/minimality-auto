@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
+import cmath
 from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
-from math import isfinite
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from ..search import Deadline, NotApplicable
-from .finite_model import _generator, _swap
-
+from . import fixed_arity
 
 Mat = tuple[int, ...]
-Token = tuple[str, str | int]
 ENTRY_TOLERANCE = 1e-10
 
 
@@ -137,7 +136,7 @@ def templates(
     variables: list[complex] = []
 
     def scalar(value: complex) -> _Scalar:
-        if not isfinite(value.real) or not isfinite(value.imag):
+        if not cmath.isfinite(value):
             raise NotApplicable("finite-field templates require finite entries")
         if abs(value.imag) <= ENTRY_TOLERANCE:
             real = float(value.real)
@@ -176,7 +175,7 @@ def templates(
         if deadline is not None and index % 128 == 0:
             deadline.check()
         size = dimension**width
-        generator = theory.signature[name] if name in theory.signature else None
+        generator = theory.signature.get(name)
         if name not in active or generator is None or generator.matrix is None:
             raw = identity(size)
         else:
@@ -213,9 +212,9 @@ def instantiate(
     arity: int,
     wire_dimension: int,
     prime: int,
-) -> tuple[dict[Token, Mat], dict[str, Mat]]:
+) -> tuple[dict[fixed_arity.Token, Mat], dict[str, Mat]]:
     native: dict[str, Mat] = {}
-    atoms: dict[Token, Mat] = {}
+    atoms: dict[fixed_arity.Token, Mat] = {}
     total_size = wire_dimension**arity
     for name, width in signature.items():
         entries: list[int] = []
@@ -230,7 +229,7 @@ def instantiate(
         matrix = tuple(entries)
         native[name] = matrix
         padding = wire_dimension ** (arity - width)
-        atoms[_generator(name)] = kronecker(
+        atoms[fixed_arity.generator(name)] = kronecker(
             matrix,
             source.sizes[name],
             identity(padding),
@@ -240,7 +239,9 @@ def instantiate(
     for index in range(arity - 1):
         order = list(range(arity))
         order[index], order[index + 1] = order[index + 1], order[index]
-        atoms[_swap(index)] = permutation_matrix(order, wire_dimension, prime)
+        atoms[fixed_arity.swap(index)] = permutation_matrix(
+            order, wire_dimension, prime
+        )
     for matrix in atoms.values():
         inverse(matrix, total_size, prime)
     return atoms, native

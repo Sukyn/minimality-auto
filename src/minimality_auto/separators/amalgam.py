@@ -8,35 +8,18 @@ all discovered from the input theory and then checked exactly.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations, product
 from math import isqrt
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any
 
 from ..core import Circuit, expand_macros
-from ..search import CandidateModel, Deadline, NotApplicable, equation_arity, relevant_equations
-from .finite_field import (
-    Mat,
-    MatrixGroup as _MatrixGroup,
-    Reject as _Reject,
-    identity as _identity,
-    instantiate as _instantiate,
-    multiply as _multiply,
-    templates as _templates,
-)
-from .finite_model import (
-    _display_name,
-    _generator,
-    _generator_arities,
-    _prop_constraints,
-    _require_endomorphic_theory,
-    _swap,
-    _word,
-)
+from ..search import CandidateModel, Deadline, NotApplicable
+from . import finite_field, fixed_arity
+from .common import require_endomorphic_theory, retained_equations
+from .fixed_arity import Token, Word
 
-
-Token = tuple[str, str | int]
-Word = tuple[Token, ...]
 MAX_MATRIX_DIMENSION = 32
 
 
@@ -51,51 +34,30 @@ def _bounded_power(base: int, exponent: int, limit: int) -> int | None:
     return result
 
 
-@dataclass(frozen=True)
-class _Relation:
-    left: Word
-    right: Word
-
-
 def _relations(
     theory: Any,
     target: Any,
     arity: int,
     signature: Mapping[str, int],
     deadline: Deadline,
-) -> tuple[tuple[_Relation, ...], tuple[_Relation, ...], tuple[Word, Word]]:
-    equations: list[_Relation] = []
-    for equation in relevant_equations(theory, target):
-        equations.append(
-            _Relation(
-                _word(
-                    expand_macros(equation.lhs, theory.macros),
-                    signature,
-                    arity,
-                    deadline=deadline,
-                ),
-                _word(
-                    expand_macros(equation.rhs, theory.macros),
-                    signature,
-                    arity,
-                    deadline=deadline,
-                ),
-            )
-        )
-    target_words = (
-        _word(
-            expand_macros(target.lhs, theory.macros),
-            signature,
-            arity,
-            deadline=deadline,
-        ),
-        _word(
-            expand_macros(target.rhs, theory.macros),
-            signature,
-            arity,
-            deadline=deadline,
-        ),
+    context: Any = None,
+) -> tuple[
+    tuple[fixed_arity.Constraint, ...],
+    tuple[fixed_arity.Constraint, ...],
+    tuple[Word, Word],
+]:
+    compile_term = fixed_arity.theory_word_compiler(
+        theory.macros, signature, arity, deadline
     )
+
+    equations = [
+        fixed_arity.Constraint(
+            compile_term(equation.lhs),
+            compile_term(equation.rhs),
+        )
+        for equation in retained_equations(theory, target, context)
+    ]
+    target_words = compile_term(target.lhs), compile_term(target.rhs)
     used = {
         token
         for relation in equations
@@ -112,32 +74,29 @@ def _relations(
     generators = tuple(
         (name, width)
         for name, width in signature.items()
-        if _generator(name) in used
+        if fixed_arity.generator(name) in used
     )
-    prop = tuple(
-        _Relation(item.left, item.right)
-        for item in _prop_constraints(arity, generators, deadline)
-    )
+    prop = fixed_arity.prop_constraints(arity, generators, deadline)
     return tuple(equations), prop, target_words
 
 
 def _word_matrix(
     word: Word,
-    atoms: Mapping[Token, Mat],
+    atoms: Mapping[Token, finite_field.Mat],
     size: int,
     prime: int,
     deadline: Deadline,
-) -> Mat:
-    result = _identity(size)
+) -> finite_field.Mat:
+    result = finite_field.identity(size)
     for index, token in enumerate(word):
-        result = _multiply(atoms[token], result, size, prime)
+        result = finite_field.multiply(atoms[token], result, size, prime)
         if index % 128 == 0:
             deadline.check()
     return result
 
 
 def _subgroup(
-    group: _MatrixGroup,
+    group: finite_field.MatrixGroup,
     generators: Sequence[int],
     limit: int,
     deadline: Deadline,
@@ -151,7 +110,9 @@ def _subgroup(
             candidate = group.multiply(value, generator)
             if candidate not in seen:
                 if len(seen) >= limit:
-                    raise _Reject(f"amalgamated subgroup order exceeds {limit}")
+                    raise finite_field.Reject(
+                        f"amalgamated subgroup order exceeds {limit}"
+                    )
                 seen.add(candidate)
                 pending.append(candidate)
         steps += 1
@@ -210,14 +171,10 @@ class _DElement:
 
 @dataclass
 class _DGroup:
-    base: _MatrixGroup
-    quotient: _MatrixGroup
+    base: finite_field.MatrixGroup
+    quotient: finite_field.MatrixGroup
     action: Mapping[tuple[int, int], int]
     products: dict[tuple[_DElement, _DElement], _DElement] = field(default_factory=dict)
-
-    @property
-    def identity(self) -> _DElement:
-        return _DElement(0, 0)
 
     def multiply(self, left: _DElement, right: _DElement) -> _DElement:
         key = left, right
@@ -231,8 +188,8 @@ class _DGroup:
 
 
 def _close_shared_subgroup(
-    base: _MatrixGroup,
-    quotient: _MatrixGroup,
+    base: finite_field.MatrixGroup,
+    quotient: finite_field.MatrixGroup,
     seeds: Sequence[int],
     limit: int,
     deadline: Deadline,
@@ -241,50 +198,40 @@ def _close_shared_subgroup(
     while True:
         shared = _subgroup(base, tuple(sorted(generators)), limit, deadline)
         enlarged = set(generators)
+        action: dict[tuple[int, int], int] = {}
         for quotient_value in range(quotient.order):
             q = quotient.elements[quotient_value]
             q_inverse = quotient.elements[quotient.inverse(quotient_value)]
             for index, shared_value in enumerate(shared):
-                matrix = _multiply(
+                matrix = finite_field.multiply(
                     q_inverse,
-                    _multiply(base.elements[shared_value], q, base.size, base.prime),
+                    finite_field.multiply(
+                        base.elements[shared_value],
+                        q,
+                        base.size,
+                        base.prime,
+                    ),
                     base.size,
                     base.prime,
                 )
-                enlarged.add(base.element(matrix))
+                conjugate = base.element(matrix)
+                enlarged.add(conjugate)
+                action[quotient_value, shared_value] = conjugate
                 if index % 128 == 0:
                     deadline.check()
         if enlarged <= shared:
             if len(shared) * quotient.order > limit:
-                raise _Reject(f"second factor order exceeds {limit}")
-            action: dict[tuple[int, int], int] = {}
-            for quotient_value in range(quotient.order):
-                quotient_matrix = quotient.elements[quotient_value]
-                quotient_inverse = quotient.elements[
-                    quotient.inverse(quotient_value)
-                ]
-                for index, shared_value in enumerate(shared):
-                    action[quotient_value, shared_value] = base.element(
-                        _multiply(
-                            quotient_inverse,
-                            _multiply(
-                                base.elements[shared_value],
-                                quotient_matrix,
-                                base.size,
-                                base.prime,
-                            ),
-                            base.size,
-                            base.prime,
-                        )
-                    )
-                    if index % 128 == 0:
-                        deadline.check()
+                raise finite_field.Reject(
+                    f"second factor order exceeds {limit}"
+                )
             return shared, action
         generators = enlarged
 
 
 def _cosets(
-    group: _MatrixGroup, shared: frozenset[int], deadline: Deadline
+    group: finite_field.MatrixGroup,
+    shared: frozenset[int],
+    deadline: Deadline,
 ) -> tuple[dict[int, tuple[int, int]], tuple[int, ...]]:
     decomposition: dict[int, tuple[int, int]] = {}
     representatives: list[int] = []
@@ -295,11 +242,11 @@ def _cosets(
         for head in sorted(shared):
             value = group.multiply(head, representative)
             if value in decomposition:
-                raise _Reject("overlapping amalgam cosets")
+                raise finite_field.Reject("overlapping amalgam cosets")
             decomposition[value] = head, representative
         deadline.check()
     if len(decomposition) != group.order:
-        raise _Reject("incomplete amalgam cosets")
+        raise finite_field.Reject("incomplete amalgam cosets")
     return decomposition, tuple(representatives)
 
 
@@ -311,8 +258,7 @@ class _NormalForm:
 
 @dataclass
 class _Amalgam:
-    base: _MatrixGroup
-    shared: frozenset[int]
+    base: finite_field.MatrixGroup
     second: _DGroup
     base_decomposition: Mapping[int, tuple[int, int]]
     base_representative_ids: Mapping[int, int]
@@ -386,47 +332,19 @@ class _Amalgam:
         return self.shared_ids[normal.head], tuple(syllables)
 
 
-def _mixed_value(
-    word: Word,
-    bridges: frozenset[Token],
-    base_tokens: Mapping[Token, int],
-    quotient_tokens: Mapping[Token, int],
-    shared: frozenset[int],
-    second: _DGroup,
-    deadline: Deadline | None = None,
-) -> _DElement:
-    result = second.identity
-    block = 0
-    for index, token in enumerate(word):
-        if token in bridges:
-            if block not in shared:
-                raise _Reject("a mixed factor block is outside the amalgamated subgroup")
-            result = second.multiply(result, _DElement(block, 0))
-            result = second.multiply(result, _DElement(0, quotient_tokens[token]))
-            block = 0
-        else:
-            block = second.base.multiply(block, base_tokens[token])
-        if deadline is not None and index % 128 == 0:
-            deadline.check()
-    if block not in shared:
-        raise _Reject("a mixed factor block is outside the amalgamated subgroup")
-    return second.multiply(result, _DElement(block, 0))
-
-
-def _rows(matrix: Mat, size: int) -> list[list[int]]:
+def _rows(matrix: finite_field.Mat, size: int) -> list[list[int]]:
     return [list(matrix[row * size : (row + 1) * size]) for row in range(size)]
 
 
 def _candidate(
     theory: Any,
-    target: Any,
     arity: int,
     signature: Mapping[str, int],
-    relations: Sequence[_Relation],
-    prop: Sequence[_Relation],
+    relations: Sequence[fixed_arity.Constraint],
+    prop: Sequence[fixed_arity.Constraint],
     target_words: tuple[Word, Word],
-    atoms: Mapping[Token, Mat],
-    native: Mapping[str, Mat],
+    atoms: Mapping[Token, finite_field.Mat],
+    native: Mapping[str, finite_field.Mat],
     bridges: frozenset[Token],
     prime: int,
     assignment: Sequence[int],
@@ -437,22 +355,20 @@ def _candidate(
     size = theory.wire_dimension**arity
     base_atom_tokens = tuple(sorted(set(atoms) - bridges))
     bridge_tokens = tuple(sorted(bridges))
-    base = _MatrixGroup(
+    base = finite_field.MatrixGroup(
         [atoms[token] for token in base_atom_tokens], size, prime, max_order, deadline
     )
-    quotient = _MatrixGroup(
+    quotient = finite_field.MatrixGroup(
         [atoms[token] for token in bridge_tokens], size, prime, max_order, deadline
     )
     base_tokens = {token: base.element(atoms[token]) for token in base_atom_tokens}
     quotient_tokens = {token: quotient.element(atoms[token]) for token in bridge_tokens}
 
     seeds: list[int] = []
-    mixed: list[_Relation] = []
     for relation in (*relations, *prop):
         left, right = _cancel(relation.left, relation.right, deadline)
-        if not (bridges & set((*left, *right))):
+        if not (bridges & {*left, *right}):
             continue
-        mixed.append(_Relation(left, right))
         for block in (
             *_blocks(left, bridges, deadline),
             *_blocks(right, bridges, deadline),
@@ -468,26 +384,6 @@ def _candidate(
         base, quotient, seeds, max_order, deadline
     )
     second = _DGroup(base, quotient, action)
-    for relation in mixed:
-        if _mixed_value(
-            relation.left,
-            bridges,
-            base_tokens,
-            quotient_tokens,
-            shared,
-            second,
-            deadline,
-        ) != _mixed_value(
-            relation.right,
-            bridges,
-            base_tokens,
-            quotient_tokens,
-            shared,
-            second,
-            deadline,
-        ):
-            raise _Reject("a retained mixed equation fails in the second factor")
-
     decomposition, representatives = _cosets(base, shared, deadline)
     tokens: dict[Token, tuple[str, int | _DElement]] = {
         token: ("C", value) for token, value in base_tokens.items()
@@ -500,7 +396,6 @@ def _candidate(
     )
     amalgam = _Amalgam(
         base,
-        shared,
         second,
         decomposition,
         {value: index for index, value in enumerate(representatives)},
@@ -512,7 +407,9 @@ def _candidate(
         != amalgam.evaluate_word(relation.right, deadline)
         for relation in (*relations, *prop)
     ):
-        raise _Reject("a retained equation fails after amalgam normalization")
+        raise finite_field.Reject(
+            "a retained equation fails after amalgam normalization"
+        )
     if amalgam.evaluate_word(
         target_words[0], deadline
     ) == amalgam.evaluate_word(target_words[1], deadline):
@@ -525,12 +422,18 @@ def _candidate(
                 f"amalgam interpretation supports endomorphisms through arity {arity}"
             )
         return amalgam.evaluate_word(
-            _word(expanded, signature, arity, deadline=deadline), deadline
+            fixed_arity.compile_word(
+                expanded,
+                signature,
+                arity,
+                deadline=deadline,
+            ),
+            deadline,
         )
 
     interpretation = {}
     for name in signature:
-        bridge = _generator(name) in bridges
+        bridge = fixed_arity.generator(name) in bridges
         interpretation[name] = {
             "factor": "D" if bridge else "C",
             "quotient_seed_matrix" if bridge else "matrix": _rows(
@@ -541,7 +444,9 @@ def _candidate(
     for index in range(arity - 1):
         order = list(range(arity))
         order[index], order[index + 1] = order[index + 1], order[index]
-        structural[_display_name(_swap(index))] = order
+        structural[
+            fixed_arity.display_name(fixed_arity.swap(index))
+        ] = order
     bridge_names = [str(token[1]) for token in bridge_tokens]
     def variable_label(index: int) -> str:
         value = variables[index]
@@ -577,7 +482,6 @@ def _candidate(
             "structural_swaps": structural,
         },
         evaluator=evaluate,
-        key=(prime, tuple(assignment), tuple(bridge_tokens)),
     )
 
 
@@ -615,7 +519,7 @@ def candidates(
     max_amalgam_bridge_generators: int = 1,
     max_amalgam_scalars: int = 3,
     max_amalgam_matrix_dimension: int = MAX_MATRIX_DIMENSION,
-    **_: Any,
+    context: Any = None,
 ) -> Iterator[CandidateModel]:
     if bound != 1:
         return
@@ -627,8 +531,8 @@ def candidates(
         return
     if max_amalgam_scalars < 0:
         raise NotApplicable("the amalgam scalar bound must be non-negative")
-    _require_endomorphic_theory(theory, deadline)
-    arity = equation_arity(target)
+    require_endomorphic_theory(theory, deadline, context)
+    arity = target.arity
     if target.lhs.type != (arity, arity):
         return
     size = _bounded_power(
@@ -640,11 +544,13 @@ def candidates(
         )
     signature = {
         name: width
-        for name, width in _generator_arities(theory, target, deadline).items()
+        for name, width in fixed_arity.generator_arities(
+            theory, target, deadline
+        ).items()
         if width <= arity
     }
     relations, prop, target_words = _relations(
-        theory, target, arity, signature, deadline
+        theory, target, arity, signature, deadline, context
     )
     active = frozenset(
         str(token[1])
@@ -658,7 +564,7 @@ def candidates(
         for token in word
         if token[0] == "generator"
     )
-    templates = _templates(
+    templates = finite_field.templates(
         theory,
         signature,
         active,
@@ -668,7 +574,7 @@ def candidates(
     target_generators = {
         token for word in target_words for token in word if token[0] == "generator"
     }
-    active_generators = {_generator(name) for name in active}
+    active_generators = {fixed_arity.generator(name) for name in active}
     ordered = sorted(
         active_generators,
         key=lambda token: (
@@ -684,7 +590,7 @@ def candidates(
         for assignment in product(range(prime), repeat=len(templates.variables)):
             deadline.check()
             try:
-                atoms, native = _instantiate(
+                atoms, native = finite_field.instantiate(
                     templates,
                     signature,
                     assignment,
@@ -705,7 +611,6 @@ def candidates(
                     try:
                         model = _candidate(
                             theory,
-                            target,
                             arity,
                             signature,
                             relations,
@@ -720,9 +625,9 @@ def candidates(
                             max_amalgam_order,
                             deadline,
                         )
-                    except _Reject:
+                    except finite_field.Reject:
                         continue
                     if model is not None:
                         yield model
-            except _Reject:
+            except finite_field.Reject:
                 continue

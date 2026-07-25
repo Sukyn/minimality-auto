@@ -7,11 +7,14 @@ input position routed there.
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass, field
+import cmath
 import json
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from itertools import chain, pairwise
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
+from typing import Any
 
 
 class PropError(ValueError):
@@ -22,10 +25,95 @@ class ValidationError(PropError):
     """Raised when JSON is well formed but not a typed PROP expression."""
 
 
+def _reject_unknown(value: Mapping[str, Any], allowed: set[str], where: str) -> None:
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValidationError(f"unknown {where} fields: {sorted(unknown)}")
+
+
+def _is_sequence(value: Any) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+
+
+_MISSING = object()
+
+
+def _one_of(
+    value: Mapping[str, Any],
+    names: tuple[str, ...],
+    where: str,
+    *,
+    default: Any = _MISSING,
+) -> Any:
+    present = [name for name in names if name in value]
+    if len(present) > 1:
+        raise ValidationError(f"{where} cannot use aliases together: {present}")
+    return value[present[0]] if present else default
+
+
 def _natural(value: Any, where: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValidationError(f"{where} must be a non-negative integer")
     return value
+
+
+def _wire_size_matches(size: int, dimension: int, wires: int) -> bool:
+    """Check ``size == dimension**wires`` without constructing a hostile integer."""
+
+    if size < 1 or dimension < 1 or wires < 0:
+        return False
+    if dimension == 1:
+        return size == 1
+    return wires <= size.bit_length() and dimension**wires == size
+
+
+def _matrix_shape_matches(
+    shape: tuple[int, ...],
+    dimension: int,
+    inputs: int,
+    outputs: int,
+) -> bool:
+    return (
+        len(shape) == 2
+        and _wire_size_matches(shape[0], dimension, outputs)
+        and _wire_size_matches(shape[1], dimension, inputs)
+    )
+
+
+def _type_pair(value: Any, where: str) -> tuple[int, int]:
+    """Parse ``a`` as ``a -> a`` and ``[a, b]`` as ``a -> b``."""
+
+    if isinstance(value, int) and not isinstance(value, bool):
+        arity = _natural(value, where)
+        return arity, arity
+    if not _is_sequence(value) or len(value) != 2:
+        raise ValidationError(f"{where} must be an arity or [inputs, outputs]")
+    return (
+        _natural(value[0], f"{where} inputs"),
+        _natural(value[1], f"{where} outputs"),
+    )
+
+
+def _optional_type(
+    value: Mapping[str, Any],
+    where: str,
+    input_names: tuple[str, ...] = ("inputs",),
+    output_names: tuple[str, ...] = ("outputs",),
+) -> tuple[int | None, int | None]:
+    has_type = "type" in value
+    endpoint_names = input_names + output_names
+    if has_type and any(name in value for name in endpoint_names):
+        raise ValidationError(f"{where} cannot mix type with input/output fields")
+    if has_type:
+        return _type_pair(value["type"], f"{where} type")
+
+    def endpoint(names: tuple[str, ...], label: str) -> int | None:
+        raw = _one_of(value, names, f"{where} {label}")
+        if raw is _MISSING:
+            return None
+        return _natural(raw, f"{where} {label}")
+
+    return endpoint(input_names, "inputs"), endpoint(output_names, "outputs")
 
 
 def _identifier(value: Any, where: str) -> str:
@@ -43,63 +131,80 @@ def parse_complex(value: Any) -> complex:
 
     if isinstance(value, bool):
         raise ValidationError("boolean is not a complex scalar")
+    parsed: complex
     if isinstance(value, (int, float, complex)):
-        return complex(value)
-    if isinstance(value, str):
+        parsed = complex(value)
+    elif isinstance(value, str):
         try:
-            return complex(value.strip().replace("I", "j").replace("i", "j"))
+            parsed = complex(value.strip().replace("I", "j").replace("i", "j"))
         except ValueError as exc:
             raise ValidationError(f"invalid complex scalar {value!r}") from exc
-    if isinstance(value, Mapping):
+    elif isinstance(value, Mapping):
         allowed = {"re", "im", "real", "imag"}
-        unknown = set(value) - allowed
-        if unknown:
-            raise ValidationError(f"unknown complex scalar fields: {sorted(unknown)}")
-        re = value.get("re", value.get("real", 0))
-        im = value.get("im", value.get("imag", 0))
+        _reject_unknown(value, allowed, "complex scalar")
+        re = _one_of(value, ("re", "real"), "complex scalar real part", default=0)
+        im = _one_of(value, ("im", "imag"), "complex scalar imaginary part", default=0)
+        if isinstance(re, bool) or isinstance(im, bool):
+            raise ValidationError("boolean is not a complex scalar component")
         try:
-            return complex(float(re), float(im))
+            parsed = complex(float(re), float(im))
         except (TypeError, ValueError) as exc:
             raise ValidationError(f"invalid complex scalar {value!r}") from exc
-    raise ValidationError(f"invalid complex scalar {value!r}")
+    else:
+        raise ValidationError(f"invalid complex scalar {value!r}")
+    if not cmath.isfinite(parsed):
+        raise ValidationError(f"complex scalar must be finite, got {value!r}")
+    return parsed
 
 
 def _matrix_tuple(value: Any) -> tuple[tuple[complex, ...], ...]:
+    if isinstance(value, Mapping) and "diagonal" in value:
+        unknown = set(value) - {"diagonal"}
+        if unknown:
+            raise ValidationError(f"unknown diagonal matrix fields: {sorted(unknown)}")
+        diagonal = value["diagonal"]
+        if not _is_sequence(diagonal) or not diagonal:
+            raise ValidationError("matrix diagonal must be a non-empty array")
+        entries = tuple(parse_complex(item) for item in diagonal)
+        return tuple(
+            tuple(entry if row == column else 0j for column, entry in enumerate(entries))
+            for row in range(len(entries))
+        )
     if isinstance(value, Mapping) and "real" in value:
         unknown = set(value) - {"real", "imag"}
         if unknown:
             raise ValidationError(f"unknown matrix fields: {sorted(unknown)}")
         real = value["real"]
         imag = value.get("imag")
-        if not isinstance(real, Sequence) or isinstance(real, (str, bytes)):
+        if not _is_sequence(real):
             raise ValidationError("matrix real part must be an array of rows")
         if imag is None:
             imag = []
             for row in real:
-                if not isinstance(row, Sequence) or isinstance(row, (str, bytes)):
+                if not _is_sequence(row):
                     raise ValidationError("matrix must be an array of rows")
                 imag.append([0] * len(row))
-        if not isinstance(imag, Sequence) or isinstance(imag, (str, bytes)):
+        if not _is_sequence(imag):
             raise ValidationError("matrix imaginary part must be an array of rows")
         if len(real) != len(imag):
             raise ValidationError("matrix real and imaginary parts have different shapes")
         value = []
         for real_row, imag_row in zip(real, imag, strict=True):
-            if not isinstance(real_row, Sequence) or isinstance(real_row, (str, bytes)):
+            if not _is_sequence(real_row):
                 raise ValidationError("matrix must be an array of rows")
-            if not isinstance(imag_row, Sequence) or isinstance(imag_row, (str, bytes)):
+            if not _is_sequence(imag_row):
                 raise ValidationError("matrix must be an array of rows")
             if len(real_row) != len(imag_row):
                 raise ValidationError("matrix real and imaginary parts have different shapes")
             value.append(
                 [{"re": re, "im": im} for re, im in zip(real_row, imag_row, strict=True)]
             )
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or not value:
+    if not _is_sequence(value) or not value:
         raise ValidationError("matrix must be a non-empty array of rows")
     rows: list[tuple[complex, ...]] = []
     width: int | None = None
     for row in value:
-        if not isinstance(row, Sequence) or isinstance(row, (str, bytes)) or not row:
+        if not _is_sequence(row) or not row:
             raise ValidationError("matrix rows must be non-empty arrays")
         parsed = tuple(parse_complex(item) for item in row)
         if width is None:
@@ -108,16 +213,6 @@ def _matrix_tuple(value: Any) -> tuple[tuple[complex, ...], ...]:
             raise ValidationError("matrix rows have different lengths")
         rows.append(parsed)
     return tuple(rows)
-
-
-def parse_complex_matrix(value: Any) -> Any:
-    """Parse a JSON matrix and return a NumPy complex array.
-
-    NumPy is imported lazily so structural searches stay lightweight.
-    """
-
-    np = _numpy()
-    return np.asarray(_matrix_tuple(value), dtype=np.complex128)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,14 +226,6 @@ class Generator:
         _identifier(self.name, "generator name")
         _natural(self.inputs, f"generator {self.name!r} inputs")
         _natural(self.outputs, f"generator {self.name!r} outputs")
-
-    @property
-    def dom(self) -> int:
-        return self.inputs
-
-    @property
-    def cod(self) -> int:
-        return self.outputs
 
     @property
     def type(self) -> tuple[int, int]:
@@ -175,49 +262,83 @@ class Signature(Mapping[str, Generator]):
         # distinguished from misspelled untyped ones.
         return name in self._generators
 
+    def get(self, name: str, default: Any = None) -> Generator | Any:
+        return self._generators.get(name, default)
+
     @classmethod
     def from_json(cls, value: Any) -> Signature:
         entries: list[tuple[str | None, Any]]
         if isinstance(value, Mapping):
             entries = [(name, spec) for name, spec in value.items()]
-        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        elif _is_sequence(value):
             entries = [(None, spec) for spec in value]
         else:
             raise ValidationError("generators must be an object or array")
 
         generators: list[Generator] = []
-        seen: set[str] = set()
         for key_name, spec in entries:
-            if isinstance(spec, Sequence) and not isinstance(spec, (str, bytes, Mapping)):
-                if key_name is None or len(spec) != 2:
-                    raise ValidationError("generator pair form is name: [inputs, outputs]")
-                name, inputs, outputs, matrix = key_name, spec[0], spec[1], None
+            if not isinstance(spec, Mapping) and key_name is not None:
+                name, matrix = key_name, None
+                inputs, outputs = _type_pair(spec, f"generator {name!r} type")
             elif isinstance(spec, Mapping):
-                name = spec.get("id", spec.get("name", key_name))
+                _reject_unknown(
+                    spec,
+                    {
+                        "id",
+                        "name",
+                        "type",
+                        "inputs",
+                        "in",
+                        "source",
+                        "outputs",
+                        "out",
+                        "target",
+                        "matrix",
+                    },
+                    "generator",
+                )
+                name = _one_of(
+                    spec,
+                    ("id", "name"),
+                    "generator identity",
+                    default=key_name,
+                )
                 if key_name is not None and name is not None and name != key_name:
                     raise ValidationError(
                         f"generator key {key_name!r} disagrees with id {name!r}"
                     )
-                typ = spec.get("type")
-                if typ is not None:
-                    if not isinstance(typ, Sequence) or len(typ) != 2:
-                        raise ValidationError(f"generator {name!r} type must be [inputs, outputs]")
-                    inputs, outputs = typ
-                else:
-                    inputs = spec.get("inputs", spec.get("in", spec.get("source")))
-                    outputs = spec.get("outputs", spec.get("out", spec.get("target")))
+                inputs, outputs = _optional_type(
+                    spec,
+                    f"generator {name!r}",
+                    ("inputs", "in", "source"),
+                    ("outputs", "out", "target"),
+                )
                 raw_matrix = spec.get("matrix")
                 matrix = _matrix_tuple(raw_matrix) if raw_matrix is not None else None
             else:
-                raise ValidationError("each generator must be an object or [inputs, outputs]")
-            name = _identifier(name, "generator id")
-            if name in seen:
-                raise ValidationError(f"duplicate generator id {name!r}")
-            seen.add(name)
-            generators.append(
-                Generator(name, _natural(inputs, f"{name} inputs"), _natural(outputs, f"{name} outputs"), matrix)
-            )
+                raise ValidationError(
+                    "array generators must be objects; object entries use an arity "
+                    "or [inputs, outputs]"
+                )
+            generators.append(Generator(name, inputs, outputs, matrix))
         return cls(generators)
+
+
+def _validate_generator_matrices(signature: Signature, dimension: int) -> None:
+    for generator in signature.values():
+        if generator.matrix is None:
+            continue
+        shape = (len(generator.matrix), len(generator.matrix[0]))
+        if not _matrix_shape_matches(
+            shape,
+            dimension,
+            generator.inputs,
+            generator.outputs,
+        ):
+            raise ValidationError(
+                f"matrix for {generator.name!r} has shape {shape}, expected "
+                f"({dimension}^{generator.outputs}, {dimension}^{generator.inputs})"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,25 +353,27 @@ class Circuit:
     parts: tuple[Circuit, ...] = ()
 
     @property
-    def dom(self) -> int:
-        return self.inputs
-
-    @property
-    def cod(self) -> int:
-        return self.outputs
-
-    @property
     def type(self) -> tuple[int, int]:
         return self.inputs, self.outputs
 
     @classmethod
-    def generator(cls, generator: Generator | str, inputs: int | None = None, outputs: int | None = None) -> Circuit:
+    def generator(
+        cls,
+        generator: Generator | str,
+        inputs: int | None = None,
+        outputs: int | None = None,
+    ) -> Circuit:
         if isinstance(generator, Generator):
             return cls("gen", generator.inputs, generator.outputs, name=generator.name)
         name = _identifier(generator, "generator name")
         if inputs is None or outputs is None:
             raise ValidationError(f"type required for generator {name!r}")
-        return cls("gen", _natural(inputs, "generator inputs"), _natural(outputs, "generator outputs"), name=name)
+        return cls(
+            "gen",
+            _natural(inputs, "generator inputs"),
+            _natural(outputs, "generator outputs"),
+            name=name,
+        )
 
     @classmethod
     def identity(cls, wires: int) -> Circuit:
@@ -259,13 +382,15 @@ class Circuit:
 
     @classmethod
     def perm(cls, order: Sequence[int]) -> Circuit:
-        if isinstance(order, (str, bytes)):
+        if not _is_sequence(order):
             raise ValidationError("permutation must be an array")
         parsed = tuple(order)
         if any(isinstance(i, bool) or not isinstance(i, int) for i in parsed):
             raise ValidationError("permutation entries must be integers")
         if sorted(parsed) != list(range(len(parsed))):
             raise ValidationError(f"not a permutation of 0..{len(parsed) - 1}: {list(parsed)}")
+        if parsed == tuple(range(len(parsed))):
+            return cls.identity(len(parsed))
         return cls("perm", len(parsed), len(parsed), order=parsed)
 
     @classmethod
@@ -284,21 +409,30 @@ class Circuit:
             flat.extend(part.parts if part.kind == "compose" else (part,))
         if not flat:
             raise ValidationError("empty composition has no type")
-        for left, right in zip(flat, flat[1:]):
+        for left, right in pairwise(flat):
             if left.outputs != right.inputs:
                 raise ValidationError(
                     "composition type mismatch: "
                     f"{left.inputs}->{left.outputs} then {right.inputs}->{right.outputs}"
                 )
-        if len(flat) == 1:
-            return flat[0]
-        return cls("compose", flat[0].inputs, flat[-1].outputs, parts=tuple(flat))
+        inputs, outputs = flat[0].inputs, flat[-1].outputs
+        nonidentities = [part for part in flat if part.kind != "id"]
+        if not nonidentities:
+            return cls.identity(inputs)
+        if len(nonidentities) == 1:
+            return nonidentities[0]
+        return cls("compose", inputs, outputs, parts=tuple(nonidentities))
 
     @classmethod
     def tensor(cls, parts: Iterable[Circuit]) -> Circuit:
         flat: list[Circuit] = []
         for part in parts:
             flat.extend(part.parts if part.kind == "tensor" else (part,))
+        flat = [
+            part
+            for part in flat
+            if not (part.kind == "id" and part.inputs == 0)
+        ]
         if not flat:
             return cls.identity(0)
         if len(flat) == 1:
@@ -310,15 +444,18 @@ class Circuit:
             parts=tuple(flat),
         )
 
-    def then(self, other: Circuit) -> Circuit:
-        return Circuit.compose((self, other))
-
-    def tensor_with(self, other: Circuit) -> Circuit:
-        return Circuit.tensor((self, other))
-
     def to_json(self) -> dict[str, Any]:
         if self.kind == "gen":
-            return {"gen": self.name}
+            return {
+                "gen": {
+                    "id": self.name,
+                    "type": (
+                        self.inputs
+                        if self.inputs == self.outputs
+                        else [self.inputs, self.outputs]
+                    ),
+                }
+            }
         if self.kind == "macro":
             return {"macro": self.name}
         if self.kind == "id":
@@ -334,56 +471,65 @@ class Circuit:
         cls,
         value: Any,
         signature: Signature | Mapping[str, Generator],
-        macros: Mapping[str, MacroDef | Circuit] | None = None,
+        macros: Mapping[str, Circuit] | None = None,
     ) -> Circuit:
         signature = signature if isinstance(signature, Signature) else Signature(signature.values())
 
-        def resolve_macro(name: str) -> MacroDef:
+        def resolve_macro(name: str) -> Circuit:
             if macros is None or name not in macros:
                 raise ValidationError(f"unknown macro {name!r}")
-            macro = macros[name]
-            return macro if isinstance(macro, MacroDef) else MacroDef(name, macro)
+            return macros[name]
 
         return _parse_circuit(value, signature, resolve_macro)
 
 
-@dataclass(frozen=True, slots=True)
-class MacroDef:
-    name: str
-    body: Circuit
-
-    def __post_init__(self) -> None:
-        _identifier(self.name, "macro id")
-
-    @property
-    def inputs(self) -> int:
-        return self.body.inputs
-
-    @property
-    def outputs(self) -> int:
-        return self.body.outputs
-
-    @property
-    def type(self) -> tuple[int, int]:
-        return self.body.type
-
-
 def _name_from_term(value: Any, key: str) -> tuple[str, int | None, int | None]:
     raw = value[key]
+    outer_type = _optional_type(value, f"inline {key}")
     if isinstance(raw, str):
-        return raw, value.get("inputs"), value.get("outputs")
+        return raw, *outer_type
     if isinstance(raw, Mapping):
-        name = raw.get("id", raw.get("name"))
-        typ = raw.get("type")
-        if typ is not None:
-            if not isinstance(typ, Sequence) or len(typ) != 2:
-                raise ValidationError(f"inline {key} type must be [inputs, outputs]")
-            return _identifier(name, f"{key} name"), typ[0], typ[1]
-        return _identifier(name, f"{key} name"), raw.get("inputs"), raw.get("outputs")
+        _reject_unknown(
+            raw,
+            {"id", "name", "type", "inputs", "outputs"},
+            f"inline {key}",
+        )
+        name = _one_of(raw, ("id", "name"), f"inline {key} identity")
+        nested_type = _optional_type(raw, f"inline {key}")
+        if outer_type != (None, None) and nested_type != (None, None):
+            raise ValidationError(f"inline {key} type is declared twice")
+        inputs, outputs = (
+            nested_type if nested_type != (None, None) else outer_type
+        )
+        return _identifier(name, f"{key} name"), inputs, outputs
     raise ValidationError(f"{key} must name a {key}")
 
 
-MacroResolver = Callable[[str], MacroDef]
+MacroResolver = Callable[[str], Circuit]
+
+
+def _parse_named_circuit(
+    value: Mapping[str, Any],
+    key: str,
+    signature: Signature,
+    macro: MacroResolver,
+) -> Circuit:
+    name, inline_inputs, inline_outputs = _name_from_term(value, key)
+    noun = "generator" if key == "gen" else "macro"
+    if key == "gen":
+        if name not in signature:
+            if inline_inputs is None or inline_outputs is None:
+                raise ValidationError(f"unknown generator {name!r}")
+            return Circuit.generator(name, inline_inputs, inline_outputs)
+        circuit = Circuit.generator(signature[name])
+    else:
+        definition = macro(name)
+        circuit = Circuit.macro(name, definition.inputs, definition.outputs)
+    if inline_inputs is not None and inline_inputs != circuit.inputs:
+        raise ValidationError(f"inline type disagrees with {noun} {name!r}")
+    if inline_outputs is not None and inline_outputs != circuit.outputs:
+        raise ValidationError(f"inline type disagrees with {noun} {name!r}")
+    return circuit
 
 
 def _parse_circuit(value: Any, signature: Signature, macro: MacroResolver) -> Circuit:
@@ -392,54 +538,46 @@ def _parse_circuit(value: Any, signature: Signature, macro: MacroResolver) -> Ci
     if "wires" in value or "ops" in value:
         if "wires" not in value or "ops" not in value:
             raise ValidationError("compact circuit needs both wires and ops")
+        _reject_unknown(value, {"wires", "ops"}, "compact circuit")
         return _parse_compact(value, signature, macro)
 
-    keys = [key for key in ("gen", "id", "perm", "compose", "tensor", "macro") if key in value]
+    keys = [
+        key
+        for key in ("gen", "id", "perm", "compose", "tensor", "macro")
+        if key in value
+    ]
     if len(keys) != 1:
-        raise ValidationError("circuit must contain exactly one of gen/id/perm/compose/tensor/macro")
+        raise ValidationError(
+            "circuit must contain exactly one of gen/id/perm/compose/tensor/macro"
+        )
     key = keys[0]
+    allowed = (
+        {key, "type", "inputs", "outputs"}
+        if key in {"gen", "macro"}
+        else {key}
+    )
+    _reject_unknown(value, allowed, "circuit")
     if key == "gen":
-        name, inline_inputs, inline_outputs = _name_from_term(value, "gen")
-        if name in signature:
-            generator = signature[name]
-            if inline_inputs is not None and inline_inputs != generator.inputs:
-                raise ValidationError(f"inline type disagrees with generator {name!r}")
-            if inline_outputs is not None and inline_outputs != generator.outputs:
-                raise ValidationError(f"inline type disagrees with generator {name!r}")
-            return Circuit.generator(generator)
-        if inline_inputs is None or inline_outputs is None:
-            raise ValidationError(f"unknown generator {name!r}")
-        return Circuit.generator(name, inline_inputs, inline_outputs)
+        return _parse_named_circuit(value, key, signature, macro)
     if key == "id":
         return Circuit.identity(value["id"])
     if key == "perm":
-        order = value["perm"]
-        if not isinstance(order, Sequence) or isinstance(order, (str, bytes)):
-            raise ValidationError("permutation must be an array")
-        return Circuit.perm(order)
+        return Circuit.perm(value["perm"])
     if key in {"compose", "tensor"}:
         raw_parts = value[key]
-        if not isinstance(raw_parts, Sequence) or isinstance(raw_parts, (str, bytes)):
+        if not _is_sequence(raw_parts):
             raise ValidationError(f"{key} must be an array")
         parts = [_parse_circuit(part, signature, macro) for part in raw_parts]
-        if key == "compose" and not parts and "wires" in value:
-            return Circuit.identity(_natural(value["wires"], "empty composition wires"))
         return Circuit.compose(parts) if key == "compose" else Circuit.tensor(parts)
-    name, inline_inputs, inline_outputs = _name_from_term(value, "macro")
-    definition = macro(name)
-    if inline_inputs is not None and inline_inputs != definition.inputs:
-        raise ValidationError(f"inline type disagrees with macro {name!r}")
-    if inline_outputs is not None and inline_outputs != definition.outputs:
-        raise ValidationError(f"inline type disagrees with macro {name!r}")
-    return Circuit.macro(name, definition.inputs, definition.outputs)
+    return _parse_named_circuit(value, key, signature, macro)
 
 
 def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroResolver) -> Circuit:
     wires = _natural(value["wires"], "compact circuit wires")
     ops = value["ops"]
-    if not isinstance(ops, Sequence) or isinstance(ops, (str, bytes)):
+    if not _is_sequence(ops):
         raise ValidationError("compact circuit ops must be an array")
-    circuit = Circuit.identity(wires)
+    steps: list[Circuit] = []
     current = wires
     for index, op in enumerate(ops):
         if not isinstance(op, Mapping):
@@ -447,49 +585,45 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
         op_keys = [key for key in ("gen", "macro", "perm") if key in op]
         if len(op_keys) != 1:
             raise ValidationError(f"operation {index} needs exactly one of gen/macro/perm")
-        if op_keys[0] == "perm":
+        key = op_keys[0]
+        allowed = (
+            {key, "on", "type", "inputs", "outputs"}
+            if key in {"gen", "macro"}
+            else {key}
+        )
+        _reject_unknown(op, allowed, f"operation {index}")
+        if key == "perm":
             step = Circuit.perm(op["perm"])
             if step.inputs != current:
                 raise ValidationError(
                     f"operation {index} permutation has {step.inputs} wires, expected {current}"
                 )
         else:
-            key = op_keys[0]
-            name, inline_inputs, inline_outputs = _name_from_term(op, key)
-            if key == "gen":
-                if name in signature:
-                    generator = signature[name]
-                    if inline_inputs is not None and inline_inputs != generator.inputs:
-                        raise ValidationError(
-                            f"inline type disagrees with generator {name!r}"
-                        )
-                    if inline_outputs is not None and inline_outputs != generator.outputs:
-                        raise ValidationError(
-                            f"inline type disagrees with generator {name!r}"
-                        )
-                    base = Circuit.generator(generator)
-                else:
-                    if inline_inputs is None or inline_outputs is None:
-                        raise ValidationError(f"unknown generator {name!r}")
-                    base = Circuit.generator(name, inline_inputs, inline_outputs)
+            base = _parse_named_circuit(op, key, signature, macro)
+            name = base.name or ""
+            if "on" not in op:
+                if base.inputs not in {0, current}:
+                    raise ValidationError(f"operation {index} needs an on array")
+                selected = tuple(range(base.inputs))
             else:
-                definition = macro(name)
-                if inline_inputs is not None and inline_inputs != definition.inputs:
-                    raise ValidationError(
-                        f"inline type disagrees with macro {name!r}"
-                    )
-                if inline_outputs is not None and inline_outputs != definition.outputs:
-                    raise ValidationError(
-                        f"inline type disagrees with macro {name!r}"
-                    )
-                base = Circuit.macro(name, definition.inputs, definition.outputs)
-            on = op.get("on")
-            if not isinstance(on, Sequence) or isinstance(on, (str, bytes)):
-                raise ValidationError(f"operation {index} needs an on array")
-            selected = tuple(on)
+                on = op["on"]
+                if isinstance(on, int) and not isinstance(on, bool):
+                    if base.inputs != 1:
+                        raise ValidationError(
+                            f"operation {index} uses an integer on for a "
+                            f"{base.inputs}-input box"
+                        )
+                    selected = (on,)
+                else:
+                    if not _is_sequence(on):
+                        raise ValidationError(
+                            f"operation {index} needs an on array or unary index"
+                        )
+                    selected = tuple(on)
             if len(selected) != base.inputs:
                 raise ValidationError(
-                    f"operation {index} selects {len(selected)} wires for {base.inputs}-input {name!r}"
+                    f"operation {index} selects {len(selected)} wires for "
+                    f"{base.inputs}-input {name!r}"
                 )
             if any(isinstance(i, bool) or not isinstance(i, int) for i in selected):
                 raise ValidationError(f"operation {index} wire positions must be integers")
@@ -498,9 +632,9 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
             if any(i < 0 or i >= current for i in selected):
                 raise ValidationError(f"operation {index} selects a wire outside 0..{current - 1}")
             step = _place_on_wires(base, current, selected)
-        circuit = Circuit.compose((circuit, step))
+        steps.append(step)
         current = step.outputs
-    return circuit
+    return Circuit.compose(steps) if steps else Circuit.identity(wires)
 
 
 def _place_on_wires(base: Circuit, wires: int, selected: tuple[int, ...]) -> Circuit:
@@ -512,7 +646,8 @@ def _place_on_wires(base: Circuit, wires: int, selected: tuple[int, ...]) -> Cir
     wires keep their order. Nullary outputs are appended.
     """
 
-    rest = tuple(i for i in range(wires) if i not in set(selected))
+    chosen = set(selected)
+    rest = tuple(i for i in range(wires) if i not in chosen)
     pre = Circuit.perm(selected + rest)
     middle = Circuit.tensor((base, Circuit.identity(len(rest))))
     generated = tuple(("g", i) for i in range(base.outputs))
@@ -536,7 +671,6 @@ class Equation:
     id: str
     lhs: Circuit
     rhs: Circuit
-    metadata: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         _identifier(self.id, "equation id")
@@ -546,44 +680,81 @@ class Equation:
             )
 
     @property
-    def type(self) -> tuple[int, int]:
-        return self.lhs.type
+    def arity(self) -> int:
+        return max(self.lhs.inputs, self.lhs.outputs)
 
 
 @dataclass(slots=True)
 class Theory:
     signature: Signature
     equations: tuple[Equation, ...]
-    macros: dict[str, MacroDef] = field(default_factory=dict)
+    macros: dict[str, Circuit] = field(default_factory=dict)
     name: str | None = None
     wire_dimension: int = 2
 
     @classmethod
     def from_json(cls, value: Any, signature: Signature | None = None) -> Theory:
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if _is_sequence(value):
             if signature is None:
-                raise ValidationError("a signature is required when the top level is an equation array")
+                raise ValidationError(
+                    "a signature is required when the top level is an equation array"
+                )
             data: Mapping[str, Any] = {"equations": value}
         elif isinstance(value, Mapping):
             data = value
+            _reject_unknown(
+                data,
+                {
+                    "name",
+                    "wire_dimension",
+                    "dimension",
+                    "source",
+                    "generators",
+                    "signature",
+                    "macros",
+                    "equations",
+                },
+                "theory",
+            )
         else:
             raise ValidationError("theory must be an object or equation array")
+        dimension = _natural(
+            _one_of(
+                data,
+                ("wire_dimension", "dimension"),
+                "theory wire dimension",
+                default=2,
+            ),
+            "wire dimension",
+        )
+        if dimension == 0:
+            raise ValidationError("wire dimension must be positive")
+        raw_signature = _one_of(
+            data,
+            ("generators", "signature"),
+            "theory signature",
+            default=None,
+        )
         if signature is None:
-            raw_signature = data.get("generators", data.get("signature"))
             if raw_signature is None:
                 raise ValidationError("theory has no generators/signature")
             signature = Signature.from_json(raw_signature)
+        _validate_generator_matrices(signature, dimension)
 
         macros = _parse_macro_definitions(data.get("macros", []), signature)
         raw_equations = data.get("equations")
-        if not isinstance(raw_equations, Sequence) or isinstance(raw_equations, (str, bytes)):
+        if not _is_sequence(raw_equations):
             raise ValidationError("equations must be an array")
         equations: list[Equation] = []
         ids: set[str] = set()
         for raw in raw_equations:
             if not isinstance(raw, Mapping):
                 raise ValidationError("each equation must be an object")
-            equation_id = _identifier(raw.get("id", raw.get("name")), "equation id")
+            _reject_unknown(raw, {"id", "name", "lhs", "rhs"}, "equation")
+            equation_id = _identifier(
+                _one_of(raw, ("id", "name"), "equation identity", default=None),
+                "equation id",
+            )
             if equation_id in ids:
                 raise ValidationError(f"duplicate equation id {equation_id!r}")
             ids.add(equation_id)
@@ -591,11 +762,7 @@ class Theory:
                 raise ValidationError(f"equation {equation_id!r} needs lhs and rhs")
             lhs = Circuit.from_json(raw["lhs"], signature, macros)
             rhs = Circuit.from_json(raw["rhs"], signature, macros)
-            metadata = {key: item for key, item in raw.items() if key not in {"id", "name", "lhs", "rhs"}}
-            equations.append(Equation(equation_id, lhs, rhs, metadata))
-        dimension = _natural(data.get("wire_dimension", data.get("dimension", 2)), "wire dimension")
-        if dimension == 0:
-            raise ValidationError("wire dimension must be positive")
+            equations.append(Equation(equation_id, lhs, rhs))
         name = data.get("name")
         if name is not None:
             name = _identifier(name, "theory name")
@@ -608,35 +775,107 @@ class Theory:
         raise KeyError(equation_id)
 
 
-def _parse_macro_definitions(value: Any, signature: Signature) -> dict[str, MacroDef]:
+def iter_theory_terms(theory: Theory, *extra: Circuit) -> Iterator[Circuit]:
+    """Iterate over macro bodies, equation sides, then any extra terms."""
+
+    return chain(
+        theory.macros.values(),
+        (
+            side
+            for equation in theory.equations
+            for side in (equation.lhs, equation.rhs)
+        ),
+        extra,
+    )
+
+
+def iter_circuit_nodes(
+    circuit: Circuit,
+    checkpoint: Callable[[], None] | None = None,
+) -> Iterator[Circuit]:
+    """Iterate over a circuit tree without recursion."""
+
+    pending = [circuit]
+    visited = 0
+    while pending:
+        if checkpoint is not None and visited % 1024 == 0:
+            checkpoint()
+        node = pending.pop()
+        yield node
+        pending.extend(node.parts)
+        visited += 1
+
+
+def _looks_like_circuit(value: Mapping[str, Any]) -> bool:
+    return (
+        "wires" in value
+        or "ops" in value
+        or any(
+            key in value
+            for key in ("gen", "perm", "compose", "tensor", "macro")
+        )
+        or ("id" in value and isinstance(value["id"], int))
+    )
+
+
+def _parse_macro_definitions(value: Any, signature: Signature) -> dict[str, Circuit]:
     entries: list[tuple[str | None, Any]]
     if isinstance(value, Mapping):
         entries = list(value.items())
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+    elif _is_sequence(value):
         entries = [(None, item) for item in value]
     else:
         raise ValidationError("macros must be an object or array")
 
     specs: dict[str, tuple[Any, int | None, int | None]] = {}
     for key_name, raw in entries:
-        if not isinstance(raw, Mapping):
+        if (
+            key_name is not None
+            and isinstance(raw, Mapping)
+            and _looks_like_circuit(raw)
+        ):
+            body, inputs, outputs = raw, None, None
+        elif not isinstance(raw, Mapping):
             if key_name is None:
                 raise ValidationError("each macro must be an object")
             body, inputs, outputs = raw, None, None
         else:
-            name_in_body = raw.get("id", raw.get("name", key_name))
+            _reject_unknown(
+                raw,
+                {
+                    "id",
+                    "name",
+                    "body",
+                    "circuit",
+                    "type",
+                    "inputs",
+                    "source",
+                    "outputs",
+                    "target",
+                },
+                "macro",
+            )
+            name_in_body = _one_of(
+                raw,
+                ("id", "name"),
+                "macro identity",
+                default=key_name,
+            )
             if key_name is not None and name_in_body is not None and name_in_body != key_name:
                 raise ValidationError(f"macro key {key_name!r} disagrees with id {name_in_body!r}")
             key_name = name_in_body
-            body = raw.get("body", raw.get("circuit"))
-            typ = raw.get("type")
-            if typ is not None:
-                if not isinstance(typ, Sequence) or len(typ) != 2:
-                    raise ValidationError(f"macro {key_name!r} type must be [inputs, outputs]")
-                inputs, outputs = typ
-            else:
-                inputs = raw.get("inputs", raw.get("source"))
-                outputs = raw.get("outputs", raw.get("target"))
+            body = _one_of(
+                raw,
+                ("body", "circuit"),
+                f"macro {key_name!r} body",
+                default=None,
+            )
+            inputs, outputs = _optional_type(
+                raw,
+                f"macro {key_name!r}",
+                ("inputs", "source"),
+                ("outputs", "target"),
+            )
         name = _identifier(key_name, "macro id")
         if name in specs:
             raise ValidationError(f"duplicate macro id {name!r}")
@@ -644,10 +883,10 @@ def _parse_macro_definitions(value: Any, signature: Signature) -> dict[str, Macr
             raise ValidationError(f"macro {name!r} has no body")
         specs[name] = (body, inputs, outputs)
 
-    resolved: dict[str, MacroDef] = {}
+    resolved: dict[str, Circuit] = {}
     visiting: list[str] = []
 
-    def resolve(name: str) -> MacroDef:
+    def resolve(name: str) -> Circuit:
         if name in resolved:
             return resolved[name]
         if name not in specs:
@@ -659,21 +898,51 @@ def _parse_macro_definitions(value: Any, signature: Signature) -> dict[str, Macr
         visiting.append(name)
         raw_body, declared_inputs, declared_outputs = specs[name]
         body = _parse_circuit(raw_body, signature, resolve)
-        if declared_inputs is not None and _natural(declared_inputs, f"macro {name} inputs") != body.inputs:
-            raise ValidationError(f"declared input type of macro {name!r} disagrees with its body")
-        if declared_outputs is not None and _natural(declared_outputs, f"macro {name} outputs") != body.outputs:
-            raise ValidationError(f"declared output type of macro {name!r} disagrees with its body")
+        if declared_inputs is not None and declared_inputs != body.inputs:
+            raise ValidationError(
+                f"declared input type of macro {name!r} disagrees with its body"
+            )
+        if declared_outputs is not None and declared_outputs != body.outputs:
+            raise ValidationError(
+                f"declared output type of macro {name!r} disagrees with its body"
+            )
         visiting.pop()
-        result = MacroDef(name, body)
-        resolved[name] = result
-        return result
+        resolved[name] = body
+        return body
 
     for name in specs:
         resolve(name)
     return resolved
 
 
-def expand_macros(circuit: Circuit, macros: Mapping[str, MacroDef | Circuit] | None = None) -> Circuit:
+def _checked_macro_body(
+    node: Circuit,
+    registry: Mapping[str, Circuit],
+) -> tuple[str, Circuit]:
+    name = node.name or ""
+    if name not in registry:
+        raise ValidationError(f"unknown macro {name!r}")
+    body = registry[name]
+    if body.type != node.type:
+        raise ValidationError(f"macro {name!r} has inconsistent type")
+    return name, body
+
+
+def contains_arity_change(
+    circuit: Circuit,
+    checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    """Whether a term contains any non-endomorphic subterm."""
+
+    return any(
+        node.inputs != node.outputs
+        for node in iter_circuit_nodes(circuit, checkpoint)
+    )
+
+
+def expand_macros(
+    circuit: Circuit, macros: Mapping[str, Circuit] | None = None
+) -> Circuit:
     """Return a macro-free circuit, detecting cycles in hand-built registries."""
 
     macros = macros or {}
@@ -681,16 +950,10 @@ def expand_macros(circuit: Circuit, macros: Mapping[str, MacroDef | Circuit] | N
 
     def expand(node: Circuit) -> Circuit:
         if node.kind == "macro":
-            name = node.name or ""
-            if name not in macros:
-                raise ValidationError(f"unknown macro {name!r}")
+            name, body = _checked_macro_body(node, macros)
             if name in active:
                 start = active.index(name)
                 raise ValidationError(f"macro cycle: {' -> '.join(active[start:] + [name])}")
-            definition = macros[name]
-            body = definition.body if isinstance(definition, MacroDef) else definition
-            if body.type != node.type:
-                raise ValidationError(f"macro {name!r} has inconsistent type")
             active.append(name)
             result = expand(body)
             active.pop()
@@ -705,7 +968,7 @@ def expand_macros(circuit: Circuit, macros: Mapping[str, MacroDef | Circuit] | N
 
 
 def primitive_occurrences(
-    circuit: Circuit, macros: Mapping[str, MacroDef | Circuit] | None = None
+    circuit: Circuit, macros: Mapping[str, Circuit] | None = None
 ) -> Counter[str]:
     """Count primitive generators after expanding every macro."""
 
@@ -717,13 +980,7 @@ def primitive_occurrences(
         if node.kind == "gen":
             return Counter((node.name or "",))
         if node.kind == "macro":
-            name = node.name or ""
-            if name not in registry:
-                raise ValidationError(f"unknown macro {name!r}")
-            definition = registry[name]
-            body = definition.body if isinstance(definition, MacroDef) else definition
-            if body.type != node.type:
-                raise ValidationError(f"macro {name!r} has inconsistent type")
+            name, body = _checked_macro_body(node, registry)
             if name in cache:
                 return cache[name]
             if name in active:
@@ -757,7 +1014,7 @@ def permutation_parity(order: Sequence[int]) -> int:
 
 
 def structural_permutation_parity(
-    circuit: Circuit, macros: Mapping[str, MacroDef | Circuit] | None = None
+    circuit: Circuit, macros: Mapping[str, Circuit] | None = None
 ) -> int:
     """XOR the inversion parity of all explicit structural permutations."""
 
@@ -767,13 +1024,7 @@ def structural_permutation_parity(
 
     def parity(node: Circuit) -> int:
         if node.kind == "macro":
-            name = node.name or ""
-            if name not in registry:
-                raise ValidationError(f"unknown macro {name!r}")
-            definition = registry[name]
-            body = definition.body if isinstance(definition, MacroDef) else definition
-            if body.type != node.type:
-                raise ValidationError(f"macro {name!r} has inconsistent type")
+            name, body = _checked_macro_body(node, registry)
             if name in cache:
                 return cache[name]
             if name in active:
@@ -791,133 +1042,6 @@ def structural_permutation_parity(
     return parity(circuit)
 
 
-def _numpy() -> Any:
-    try:
-        import numpy as np
-    except ImportError as exc:  # pragma: no cover - depends on optional installation
-        raise PropError("matrix evaluation requires NumPy") from exc
-    return np
-
-
-class MatrixSemantics:
-    """Evaluate circuits as complex matrices over a fixed wire dimension."""
-
-    def __init__(
-        self,
-        signature: Signature,
-        wire_dimension: int = 2,
-        overrides: Mapping[str, Any] | None = None,
-    ) -> None:
-        self.signature = signature
-        self.wire_dimension = _natural(wire_dimension, "wire dimension")
-        if self.wire_dimension == 0:
-            raise ValidationError("wire dimension must be positive")
-        self.overrides = dict(overrides or {})
-
-    def evaluate(
-        self,
-        circuit: Circuit,
-        macros: Mapping[str, MacroDef | Circuit] | None = None,
-        overrides: Mapping[str, Any] | None = None,
-    ) -> Any:
-        np = _numpy()
-        matrices = dict(self.overrides)
-        matrices.update(overrides or {})
-        registry = macros or {}
-        macro_matrices: dict[str, Any] = {}
-        active_macros: list[str] = []
-        d = self.wire_dimension
-
-        def generator_matrix(node: Circuit) -> Any:
-            assert node.name is not None
-            raw = matrices.get(node.name)
-            if raw is None:
-                raw = self.signature[node.name].matrix
-            if raw is None:
-                raise ValidationError(f"no matrix supplied for generator {node.name!r}")
-            matrix = np.asarray(
-                raw if hasattr(raw, "shape") else _matrix_tuple(raw), dtype=np.complex128
-            )
-            expected = (d**node.outputs, d**node.inputs)
-            if matrix.shape != expected:
-                raise ValidationError(
-                    f"matrix for {node.name!r} has shape {matrix.shape}, expected {expected}"
-                )
-            return matrix
-
-        def permutation_matrix(order: tuple[int, ...]) -> Any:
-            size = d ** len(order)
-            matrix = np.zeros((size, size), dtype=np.complex128)
-            for column in range(size):
-                digits = [0] * len(order)
-                remainder = column
-                for index in range(len(order) - 1, -1, -1):
-                    digits[index] = remainder % d
-                    remainder //= d
-                row = 0
-                for source in order:
-                    row = row * d + digits[source]
-                matrix[row, column] = 1
-            return matrix
-
-        def run(node: Circuit) -> Any:
-            if node.kind == "gen":
-                return generator_matrix(node)
-            if node.kind == "id":
-                return np.eye(d**node.inputs, dtype=np.complex128)
-            if node.kind == "perm":
-                return permutation_matrix(node.order)
-            if node.kind == "tensor":
-                result = np.ones((1, 1), dtype=np.complex128)
-                for part in node.parts:
-                    result = np.kron(result, run(part))
-                return result
-            if node.kind == "compose":
-                result = run(node.parts[0])
-                for part in node.parts[1:]:
-                    result = run(part) @ result
-                return result
-            if node.kind == "macro":
-                name = node.name or ""
-                if name not in registry:
-                    raise ValidationError(f"unknown macro {name!r}")
-                definition = registry[name]
-                body = (
-                    definition.body
-                    if isinstance(definition, MacroDef)
-                    else definition
-                )
-                if body.type != node.type:
-                    raise ValidationError(f"macro {name!r} has inconsistent type")
-                if name in macro_matrices:
-                    return macro_matrices[name]
-                if name in active_macros:
-                    start = active_macros.index(name)
-                    raise ValidationError(
-                        "macro cycle: "
-                        + " -> ".join(active_macros[start:] + [name])
-                    )
-                active_macros.append(name)
-                macro_matrices[name] = run(body)
-                active_macros.pop()
-                return macro_matrices[name]
-            raise AssertionError(f"unknown circuit kind {node.kind!r}")
-
-        return run(circuit)
-
-
-def evaluate_matrix(
-    circuit: Circuit,
-    signature: Signature,
-    macros: Mapping[str, MacroDef | Circuit] | None = None,
-    wire_dimension: int = 2,
-    overrides: Mapping[str, Any] | None = None,
-) -> Any:
-    """Convenience wrapper around :class:`MatrixSemantics`."""
-
-    return MatrixSemantics(signature, wire_dimension, overrides).evaluate(circuit, macros)
-
-
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -927,12 +1051,20 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_nonfinite_constant(value: str) -> None:
+    raise ValidationError(f"non-finite JSON number {value!r}")
+
+
 def load_json(path: str | Path) -> Any:
-    """Load JSON while rejecting duplicate object keys."""
+    """Load JSON while rejecting duplicate keys and non-finite numbers."""
 
     try:
         with Path(path).open("r", encoding="utf-8") as handle:
-            return json.load(handle, object_pairs_hook=_unique_object)
+            return json.load(
+                handle,
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_nonfinite_constant,
+            )
     except json.JSONDecodeError as exc:
         raise ValidationError(f"invalid JSON in {path}: {exc}") from exc
 

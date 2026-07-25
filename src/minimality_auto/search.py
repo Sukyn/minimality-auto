@@ -1,25 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+import importlib
 import math
 import operator
 import time
-from typing import Any, Callable, Iterable, Iterator, Protocol
+from collections import Counter
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
-
-DEFAULT_STRATEGIES = (
-    "presence",
-    "counting",
-    "finite_model",
-    "amalgam",
-    "spin",
-    "determinant",
-    "substitution",
+from .core import (
+    Circuit,
+    Equation,
+    Theory,
+    contains_arity_change,
+    iter_theory_terms,
+    primitive_occurrences,
+    structural_permutation_parity,
 )
 
 
 class SearchTimeout(RuntimeError):
+    pass
+
+
+class SearchConfigurationError(ValueError):
     pass
 
 
@@ -32,26 +37,12 @@ class Deadline:
     expires_at: float
 
     @classmethod
-    def after(cls, seconds: float) -> "Deadline":
+    def after(cls, seconds: float) -> Deadline:
         return cls(time.monotonic() + max(0.0, seconds))
-
-    @property
-    def remaining(self) -> float:
-        return max(0.0, self.expires_at - time.monotonic())
 
     def check(self) -> None:
         if time.monotonic() >= self.expires_at:
             raise SearchTimeout
-
-
-class Model(Protocol):
-    kind: str
-    description: str
-    parameters: dict[str, Any]
-
-    def evaluate(self, term: Any) -> Any: ...
-
-    def equal(self, left: Any, right: Any) -> bool: ...
 
 
 @dataclass
@@ -60,8 +51,9 @@ class CandidateModel:
     description: str
     parameters: dict[str, Any]
     evaluator: Callable[[Any], Any]
-    equality: Callable[[Any, Any], bool] = field(default=lambda a, b: a == b)
-    key: tuple[Any, ...] = ()
+    equality: Callable[[Any, Any], bool] = operator.eq
+    key: Hashable | None = None
+    certified: bool = True
 
     def evaluate(self, term: Any) -> Any:
         return self.evaluator(term)
@@ -79,6 +71,7 @@ class Separation:
     checked_equations: tuple[str, ...]
     lhs_value: Any
     rhs_value: Any
+    certified: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -89,7 +82,17 @@ class Separation:
             "checked_equations": list(self.checked_equations),
             "lhs_value": _json_value(self.lhs_value),
             "rhs_value": _json_value(self.rhs_value),
+            "certified": self.certified,
         }
+
+
+@dataclass(frozen=True)
+class DirectCertificate:
+    description: str
+    parameters: dict[str, Any]
+    lhs_value: Any
+    rhs_value: Any
+    certified: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,77 +113,246 @@ class SearchReport:
         }
 
 
-def equation_id(equation: Any) -> str:
-    return str(getattr(equation, "id", getattr(equation, "name", "?")))
+@dataclass(frozen=True)
+class SearchContext:
+    retained: Mapping[Equation, tuple[Equation, ...]]
+    active_primitive_count: int
+    endomorphic: bool
+    term_occurrences: Mapping[Circuit, Counter[str]]
+    term_parities: dict[Circuit, int]
+
+    @classmethod
+    def build(
+        cls,
+        theory: Theory,
+        targets: Iterable[Equation],
+        deadline: Deadline | None = None,
+    ) -> SearchContext:
+        targets = tuple(targets)
+        if deadline is not None:
+            deadline.check()
+        endomorphic = _theory_is_endomorphic(theory, deadline)
+        retained: dict[Equation, tuple[Equation, ...]] = {}
+        for target in targets:
+            if deadline is not None:
+                deadline.check()
+            retained[target] = tuple(
+                _relevant_equations(
+                    theory,
+                    target,
+                    endomorphic=endomorphic,
+                    deadline=deadline,
+                )
+            )
+        terms: list[Circuit] = []
+        seen_terms: set[Circuit] = set()
+        for target in targets:
+            for equation in (*retained[target], target):
+                for term in (equation.lhs, equation.rhs):
+                    if term not in seen_terms:
+                        seen_terms.add(term)
+                        terms.append(term)
+        occurrences: dict[Circuit, Counter[str]] = {}
+        active_names: set[str] = set()
+        for term in terms:
+            if deadline is not None:
+                deadline.check()
+            counts = primitive_occurrences(term, theory.macros)
+            occurrences[term] = counts
+            active_names.update(counts)
+        return cls(
+            retained,
+            len(active_names),
+            endomorphic,
+            occurrences,
+            {},
+        )
+
+    def equations_for(self, target: Equation) -> tuple[Equation, ...]:
+        return self.retained[target]
+
+    def occurrences_for(
+        self,
+        term: Circuit,
+        macros: Mapping[str, Circuit],
+    ) -> Counter[str]:
+        counts = self.term_occurrences.get(term)
+        return counts if counts is not None else primitive_occurrences(term, macros)
+
+    def parity_for(
+        self,
+        term: Circuit,
+        macros: Mapping[str, Circuit],
+    ) -> int:
+        if term not in self.term_parities:
+            self.term_parities[term] = structural_permutation_parity(term, macros)
+        return self.term_parities[term]
 
 
-def equation_arity(equation: Any) -> int:
-    explicit = getattr(equation, "arity", None)
-    if explicit is not None:
-        return int(explicit)
-    source = getattr(equation, "source", None)
-    if source is not None:
-        return int(source)
-    lhs = getattr(equation, "lhs", None)
-    for attr in ("source", "inputs"):
-        value = getattr(lhs, attr, None)
-        if value is not None:
-            return int(value)
-    raise ValueError(f"cannot determine arity of equation {equation_id(equation)}")
+@dataclass(frozen=True)
+class StrategySpec:
+    name: str
+    flags: tuple[str, ...]
+    help: str
+    bound: int | str
+    option_names: tuple[str, ...] = ()
+    bound_padding: int = 0
+    candidate_offset: int = 0
+
+    def maximum_bound(
+        self,
+        context: SearchContext,
+        targets: Iterable[Equation],
+        limits: Mapping[str, int],
+    ) -> int:
+        if isinstance(self.bound, int):
+            base = self.bound
+        elif self.bound == "active_primitive_count":
+            base = max(1, context.active_primitive_count)
+        elif self.bound == "target_arity":
+            base = max(3, *(equation.arity for equation in targets))
+        else:
+            base = limits[self.bound]
+        return base + self.bound_padding
+
+    def load_candidates(
+        self,
+    ) -> Callable[..., Iterator[CandidateModel | DirectCertificate]]:
+        module = importlib.import_module(
+            f".separators.{self.name}",
+            package=__package__,
+        )
+        return module.candidates
 
 
-def _contains_arity_change(node: Any) -> bool:
-    inputs = getattr(node, "inputs", None)
-    outputs = getattr(node, "outputs", None)
-    if inputs is not None and outputs is not None and inputs != outputs:
-        return True
-    return any(_contains_arity_change(part) for part in getattr(node, "parts", ()))
+@dataclass(frozen=True)
+class _ResolvedStrategy:
+    candidates: Callable[..., Iterator[CandidateModel | DirectCertificate]]
+    max_bound: int
+    bound_offset: int = 0
+    options: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _theory_is_endomorphic(theory: Any) -> bool:
-    signature = getattr(theory, "signature", ())
-    if any(generator.inputs != generator.outputs for generator in signature.values()):
-        return False
-    for equation in theory.equations:
-        if _contains_arity_change(equation.lhs) or _contains_arity_change(equation.rhs):
+STRATEGY_SPECS = (
+    StrategySpec(
+        "presence",
+        ("--presence-checking", "--presence_checking", "--max-occurrence"),
+        "run Boolean max/occurrence models",
+        "active_primitive_count",
+    ),
+    StrategySpec(
+        "counting",
+        ("--counting",),
+        "run modular counting models",
+        "max_modulus",
+        option_names=("max_modulus",),
+    ),
+    StrategySpec(
+        "block_normal_form",
+        ("--block-normal-form", "--block_normal_form", "--brylinski"),
+        "run three-wire Brylinski block-normal-form evidence",
+        3,
+        option_names=("max_block_matrix_dimension",),
+    ),
+    StrategySpec(
+        "finite_model",
+        ("--finite-model", "--finite_model", "--permutation-model"),
+        "search small permutation interpretations",
+        "max_permutation_degree",
+        option_names=("max_permutation_degree",),
+    ),
+    StrategySpec(
+        "amalgam",
+        ("--amalgam",),
+        "search finite factors and free-product-with-amalgamation models",
+        1,
+        option_names=(
+            "max_amalgam_prime",
+            "max_amalgam_order",
+            "max_amalgam_bridge_generators",
+            "max_amalgam_scalars",
+            "max_amalgam_matrix_dimension",
+        ),
+    ),
+    StrategySpec(
+        "spin",
+        ("--spin-cover", "--spin_cover"),
+        "run numerical Spin-cover commutator evidence",
+        0,
+        option_names=("max_spin_matrix_dimension",),
+    ),
+    StrategySpec(
+        "determinant",
+        ("--determinant",),
+        "run numerical scaled determinant-phase models",
+        "target_arity",
+    ),
+    StrategySpec(
+        "substitution",
+        ("--substitution",),
+        "run numerical projective substitutions",
+        "max_depth",
+        option_names=("max_depth", "max_substitution_matrix_entries"),
+        bound_padding=2,
+        candidate_offset=-2,
+    ),
+)
+_STRATEGY_BY_NAME = {spec.name: spec for spec in STRATEGY_SPECS}
+DEFAULT_STRATEGIES = tuple(spec.name for spec in STRATEGY_SPECS)
+
+
+def _theory_is_endomorphic(
+    theory: Theory,
+    deadline: Deadline | None = None,
+) -> bool:
+    for generator in theory.signature.values():
+        if deadline is not None:
+            deadline.check()
+        if generator.inputs != generator.outputs:
             return False
-    macros = getattr(theory, "macros", {})
-    for definition in macros.values():
-        body = getattr(definition, "body", definition)
-        if _contains_arity_change(body):
-            return False
-    return True
+    checkpoint = deadline.check if deadline is not None else None
+    return all(
+        not contains_arity_change(term, checkpoint)
+        for term in iter_theory_terms(theory)
+    )
 
 
-def _active_primitive_name_count(theory: Any) -> int:
-    from .core import primitive_occurrences
-
-    names: set[str] = set()
-    for equation in theory.equations:
-        names.update(primitive_occurrences(equation.lhs, theory.macros))
-        names.update(primitive_occurrences(equation.rhs, theory.macros))
-    return len(names)
-
-
-def relevant_equations(theory: Any, target: Any) -> list[Any]:
-    """Rules to validate, with an arity shortcut for endomorphic theories."""
+def _relevant_equations(
+    theory: Theory,
+    target: Equation,
+    *,
+    endomorphic: bool,
+    deadline: Deadline | None = None,
+) -> list[Equation]:
     others = [
         equation
         for equation in theory.equations
-        if equation_id(equation) != equation_id(target)
+        if equation.id != target.id
     ]
-    target_changes_arity = _contains_arity_change(
-        getattr(target, "lhs", None)
-    ) or _contains_arity_change(getattr(target, "rhs", None))
-    if not _theory_is_endomorphic(theory) or target_changes_arity:
+    checkpoint = deadline.check if deadline is not None else None
+    target_changes_arity = contains_arity_change(
+        target.lhs, checkpoint
+    ) or contains_arity_change(target.rhs, checkpoint)
+    if not endomorphic or target_changes_arity:
         return others
-    arity = equation_arity(target)
-    return [equation for equation in others if equation_arity(equation) <= arity]
+    return [equation for equation in others if equation.arity <= target.arity]
 
 
-def verify(model: Model, theory: Any, target: Any, deadline: Deadline) -> Separation | None:
-    checked: list[str] = []
-    for equation in relevant_equations(theory, target):
+def relevant_equations(theory: Theory, target: Equation) -> list[Equation]:
+    """Rules to validate, with an arity shortcut for endomorphic theories."""
+    return _relevant_equations(
+        theory, target, endomorphic=_theory_is_endomorphic(theory)
+    )
+
+
+def verify(
+    model: CandidateModel,
+    theory: Theory,
+    target: Equation,
+    deadline: Deadline,
+    context: SearchContext | None = None,
+) -> Separation | None:
+    def compare(equation: Equation) -> tuple[Any, Any, bool]:
         deadline.check()
         left = model.evaluate(equation.lhs)
         deadline.check()
@@ -188,96 +360,149 @@ def verify(model: Model, theory: Any, target: Any, deadline: Deadline) -> Separa
         deadline.check()
         equal = model.equal(left, right)
         deadline.check()
+        return left, right, equal
+
+    checked: list[str] = []
+    equations = (
+        context.equations_for(target)
+        if context is not None
+        else relevant_equations(theory, target)
+    )
+    for equation in equations:
+        _, _, equal = compare(equation)
         if not equal:
             return None
-        checked.append(equation_id(equation))
+        checked.append(equation.id)
 
-    deadline.check()
-    left = model.evaluate(target.lhs)
-    deadline.check()
-    right = model.evaluate(target.rhs)
-    deadline.check()
-    equal = model.equal(left, right)
-    deadline.check()
+    left, right, equal = compare(target)
     if equal:
         return None
     return Separation(
-        equation=equation_id(target),
+        equation=target.id,
         strategy=model.kind,
         description=model.description,
         parameters=model.parameters,
         checked_equations=tuple(checked),
         lhs_value=left,
         rhs_value=right,
+        certified=model.certified,
     )
 
 
-def _validate_direct_separation(
-    separation: Separation,
-    theory: Any,
-    target: Any,
+def _direct_separation(
+    certificate: DirectCertificate,
+    target: Equation,
     strategy: str,
-) -> None:
-    expected = tuple(
-        equation_id(equation) for equation in relevant_equations(theory, target)
-    )
-    if separation.equation != equation_id(target) or separation.strategy != strategy:
-        raise ValueError(f"invalid direct separation from {strategy}")
-    if separation.checked_equations != expected:
-        raise ValueError(
-            f"direct separation from {strategy} did not check every retained equation"
-        )
-    same = separation.lhs_value == separation.rhs_value
+    context: SearchContext,
+) -> Separation:
+    same = certificate.lhs_value == certificate.rhs_value
     if hasattr(same, "all"):
         same = bool(same.all())
     if same:
-        raise ValueError(f"direct separation from {strategy} has equal target values")
-
-
-def _strategy_functions(
-    names: Iterable[str],
-) -> dict[str, Callable[..., Iterator[CandidateModel | Separation]]]:
-    from .separators import (
-        amalgam,
-        counting,
-        determinant,
-        finite_model,
-        presence,
-        spin,
-        substitution,
+        raise ValueError(f"direct certificate from {strategy} has equal target values")
+    return Separation(
+        equation=target.id,
+        strategy=strategy,
+        description=certificate.description,
+        parameters=certificate.parameters,
+        checked_equations=tuple(
+            equation.id for equation in context.equations_for(target)
+        ),
+        lhs_value=certificate.lhs_value,
+        rhs_value=certificate.rhs_value,
+        certified=certificate.certified,
     )
 
-    available = {
-        "presence": presence.candidates,
-        "counting": counting.candidates,
-        "substitution": substitution.candidates,
-        "determinant": determinant.candidates,
-        "finite_model": finite_model.candidates,
-        "amalgam": amalgam.candidates,
-        "spin": spin.candidates,
-    }
-    requested = tuple(names)
-    unknown = sorted(set(requested) - set(available))
-    if unknown:
-        raise ValueError(f"unknown separation strategy: {', '.join(unknown)}")
-    return {name: available[name] for name in requested}
+
+def _strategy_specs(
+    names: Iterable[str],
+    context: SearchContext,
+    targets: Iterable[Equation],
+    options: Mapping[str, int],
+) -> dict[str, _ResolvedStrategy]:
+    resolved: dict[str, _ResolvedStrategy] = {}
+    for name in names:
+        spec = _STRATEGY_BY_NAME[name]
+        resolved[name] = _ResolvedStrategy(
+            spec.load_candidates(),
+            spec.maximum_bound(context, targets, options),
+            spec.candidate_offset,
+            {key: options[key] for key in spec.option_names},
+        )
+    return resolved
 
 
 def _integer_option(name: str, value: Any, minimum: int) -> int:
     if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
+        raise SearchConfigurationError(f"{name} must be an integer")
     try:
         parsed = operator.index(value)
     except TypeError as exc:
-        raise ValueError(f"{name} must be an integer") from exc
+        raise SearchConfigurationError(f"{name} must be an integer") from exc
     if parsed < minimum:
         qualifier = "non-negative" if minimum == 0 else f"at least {minimum}"
-        raise ValueError(f"{name} must be {qualifier}")
+        raise SearchConfigurationError(f"{name} must be {qualifier}")
     return parsed
 
 
+def _candidate_witnesses(
+    theory: Theory,
+    target: Equation,
+    strategy_name: str,
+    spec: _ResolvedStrategy,
+    bound: int,
+    deadline: Deadline,
+    context: SearchContext,
+    seen: set[tuple[Hashable, bool]],
+) -> Iterator[Separation]:
+    try:
+        models = iter(
+            spec.candidates(
+                theory,
+                target,
+                bound=bound + spec.bound_offset,
+                deadline=deadline,
+                context=context,
+                **spec.options,
+            )
+        )
+    except NotApplicable:
+        return
+
+    while True:
+        try:
+            model = next(models)
+        except StopIteration:
+            return
+        except NotApplicable:
+            return
+
+        deadline.check()
+        try:
+            if isinstance(model, DirectCertificate):
+                witness = _direct_separation(model, target, strategy_name, context)
+            else:
+                seen_key = (
+                    (model.key, model.certified)
+                    if model.key is not None
+                    else None
+                )
+                if seen_key is not None and seen_key in seen:
+                    continue
+                witness = verify(model, theory, target, deadline, context)
+                if seen_key is not None:
+                    seen.add(seen_key)
+        except NotApplicable:
+            continue
+
+        if witness is not None:
+            yield witness
+            if witness.certified:
+                return
+
+
 def search_theory(
-    theory: Any,
+    theory: Theory,
     *,
     strategies: Iterable[str] = DEFAULT_STRATEGIES,
     equation_ids: set[str] | None = None,
@@ -293,135 +518,142 @@ def search_theory(
     max_amalgam_scalars: int = 3,
     max_amalgam_matrix_dimension: int = 32,
     max_spin_matrix_dimension: int = 1024,
+    max_block_matrix_dimension: int = 512,
 ) -> SearchReport:
+    strategies = tuple(strategies)
+    unknown = sorted(set(strategies) - set(DEFAULT_STRATEGIES))
+    if unknown:
+        raise SearchConfigurationError(
+            f"unknown separation strategy: {', '.join(unknown)}"
+        )
     try:
         timeout = float(timeout)
     except (TypeError, ValueError) as exc:
-        raise ValueError("timeout must be a finite non-negative number") from exc
+        raise SearchConfigurationError(
+            "timeout must be a finite non-negative number"
+        ) from exc
     if not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("timeout must be a finite non-negative number")
+        raise SearchConfigurationError("timeout must be a finite non-negative number")
     if max_arity is not None:
         max_arity = _integer_option("max_arity", max_arity, 0)
-    max_modulus = _integer_option("max_modulus", max_modulus, 2)
-    max_depth = _integer_option("max_depth", max_depth, 0)
-    max_substitution_matrix_entries = _integer_option(
-        "max_substitution_matrix_entries", max_substitution_matrix_entries, 1
-    )
-    max_permutation_degree = _integer_option(
-        "max_permutation_degree", max_permutation_degree, 2
-    )
-    max_amalgam_prime = _integer_option(
-        "max_amalgam_prime", max_amalgam_prime, 2
-    )
-    max_amalgam_order = _integer_option("max_amalgam_order", max_amalgam_order, 1)
-    max_amalgam_bridge_generators = _integer_option(
-        "max_amalgam_bridge_generators", max_amalgam_bridge_generators, 1
-    )
-    max_amalgam_scalars = _integer_option(
-        "max_amalgam_scalars", max_amalgam_scalars, 0
-    )
-    max_amalgam_matrix_dimension = _integer_option(
-        "max_amalgam_matrix_dimension", max_amalgam_matrix_dimension, 1
-    )
-    max_spin_matrix_dimension = _integer_option(
-        "max_spin_matrix_dimension", max_spin_matrix_dimension, 1
-    )
+    candidate_options = {
+        "max_modulus": _integer_option("max_modulus", max_modulus, 2),
+        "max_depth": _integer_option("max_depth", max_depth, 0),
+        "max_substitution_matrix_entries": _integer_option(
+            "max_substitution_matrix_entries",
+            max_substitution_matrix_entries,
+            1,
+        ),
+        "max_permutation_degree": _integer_option(
+            "max_permutation_degree", max_permutation_degree, 2
+        ),
+        "max_amalgam_prime": _integer_option(
+            "max_amalgam_prime", max_amalgam_prime, 2
+        ),
+        "max_amalgam_order": _integer_option(
+            "max_amalgam_order", max_amalgam_order, 1
+        ),
+        "max_amalgam_bridge_generators": _integer_option(
+            "max_amalgam_bridge_generators",
+            max_amalgam_bridge_generators,
+            1,
+        ),
+        "max_amalgam_scalars": _integer_option(
+            "max_amalgam_scalars", max_amalgam_scalars, 0
+        ),
+        "max_amalgam_matrix_dimension": _integer_option(
+            "max_amalgam_matrix_dimension",
+            max_amalgam_matrix_dimension,
+            1,
+        ),
+        "max_spin_matrix_dimension": _integer_option(
+            "max_spin_matrix_dimension", max_spin_matrix_dimension, 1
+        ),
+        "max_block_matrix_dimension": _integer_option(
+            "max_block_matrix_dimension", max_block_matrix_dimension, 1
+        ),
+    }
 
     start = time.monotonic()
+    theory_name = theory.name or "theory"
     deadline = Deadline.after(timeout)
-    functions = _strategy_functions(strategies)
-    targets = [
+    targets = tuple(
         equation
         for equation in theory.equations
-        if (equation_ids is None or equation_id(equation) in equation_ids)
-        and (max_arity is None or equation_arity(equation) <= max_arity)
-    ]
-    missing = (equation_ids or set()) - {equation_id(equation) for equation in targets}
+        if (equation_ids is None or equation.id in equation_ids)
+        and (max_arity is None or equation.arity <= max_arity)
+    )
+    target_ids = tuple(equation.id for equation in targets)
+    missing = (equation_ids or set()) - set(target_ids)
     if missing:
-        raise ValueError(f"unknown or filtered equation(s): {', '.join(sorted(missing))}")
-
-    witnesses: dict[str, Separation] = {}
-    seen: dict[tuple[str, str], set[tuple[Any, ...]]] = {}
-    round_limits = {
-        "counting": max_modulus,
-        "substitution": max_depth + 2,
-        "finite_model": max_permutation_degree,
-        "amalgam": 1,
-        "spin": 0,
-    }
-    if "presence" in functions:
-        round_limits["presence"] = max(1, _active_primitive_name_count(theory))
-    if "determinant" in functions:
-        round_limits["determinant"] = max(
-            3, *(equation_arity(equation) for equation in targets)
+        raise SearchConfigurationError(
+            f"unknown or filtered equation(s): {', '.join(sorted(missing))}"
         )
-    rounds = max((round_limits[name] for name in functions), default=0)
+
+    if not targets or not strategies:
+        return SearchReport(
+            theory=theory_name,
+            witnesses={},
+            unresolved=target_ids,
+            elapsed_seconds=time.monotonic() - start,
+            timed_out=False,
+        )
+
+    try:
+        context = SearchContext.build(theory, targets, deadline)
+    except SearchTimeout:
+        return SearchReport(
+            theory=theory_name,
+            witnesses={},
+            unresolved=target_ids,
+            elapsed_seconds=time.monotonic() - start,
+            timed_out=True,
+        )
+    specs = _strategy_specs(strategies, context, targets, candidate_options)
+    witnesses: dict[str, Separation] = {}
+    pending = set(target_ids)
+    seen: dict[tuple[str, str], set[tuple[Hashable, bool]]] = {}
+    rounds = max((spec.max_bound for spec in specs.values()), default=0)
     timed_out = False
 
     try:
-        for bound in range(0, rounds + 1):
+        for bound in range(rounds + 1):
             deadline.check()
-            for target in targets:
-                target_id = equation_id(target)
-                if target_id in witnesses:
+            for strategy_name, spec in specs.items():
+                deadline.check()
+                if bound > spec.max_bound:
                     continue
-                for strategy_name, generate in functions.items():
-                    deadline.check()
-                    if bound > round_limits[strategy_name]:
+                for target, target_id in zip(targets, target_ids, strict=True):
+                    if target_id not in pending:
                         continue
-                    strategy_bound = bound - 2 if strategy_name == "substitution" else bound
-                    try:
-                        models = generate(
-                            theory,
-                            target,
-                            bound=strategy_bound,
-                            deadline=deadline,
-                            max_modulus=max_modulus,
-                            max_depth=max_depth,
-                            max_substitution_matrix_entries=(
-                                max_substitution_matrix_entries
-                            ),
-                            max_permutation_degree=max_permutation_degree,
-                            max_amalgam_prime=max_amalgam_prime,
-                            max_amalgam_order=max_amalgam_order,
-                            max_amalgam_bridge_generators=max_amalgam_bridge_generators,
-                            max_amalgam_scalars=max_amalgam_scalars,
-                            max_amalgam_matrix_dimension=max_amalgam_matrix_dimension,
-                            max_spin_matrix_dimension=max_spin_matrix_dimension,
-                        )
-                        for model in models:
-                            deadline.check()
-                            if isinstance(model, Separation):
-                                _validate_direct_separation(
-                                    model, theory, target, strategy_name
-                                )
-                                witnesses[target_id] = model
-                                break
-                            model_key = model.key or (model.description,)
-                            bucket = seen.setdefault((target_id, strategy_name), set())
-                            if model_key in bucket:
-                                continue
-                            bucket.add(model_key)
-                            witness = verify(model, theory, target, deadline)
-                            if witness is not None:
-                                witnesses[target_id] = witness
-                                break
-                    except NotApplicable:
-                        continue
-                    if target_id in witnesses:
-                        break
-            if len(witnesses) == len(targets):
+                    bucket = seen.setdefault((target_id, strategy_name), set())
+                    for witness in _candidate_witnesses(
+                        theory,
+                        target,
+                        strategy_name,
+                        spec,
+                        bound,
+                        deadline,
+                        context,
+                        bucket,
+                    ):
+                        previous = witnesses.get(target_id)
+                        if previous is None or (
+                            not previous.certified and witness.certified
+                        ):
+                            witnesses[target_id] = witness
+                            if witness.certified:
+                                pending.discard(target_id)
+                if not pending:
+                    break
+            if not pending:
                 break
     except SearchTimeout:
         timed_out = True
 
-    unresolved = tuple(
-        equation_id(target)
-        for target in targets
-        if equation_id(target) not in witnesses
-    )
+    unresolved = tuple(target_id for target_id in target_ids if target_id in pending)
     return SearchReport(
-        theory=str(getattr(theory, "name", None) or "theory"),
+        theory=theory_name,
         witnesses=witnesses,
         unresolved=unresolved,
         elapsed_seconds=time.monotonic() - start,

@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
+import math
+import multiprocessing
 import sys
+import time
+from pathlib import Path
+from typing import Any
 
-from .core import load_theory
-from .search import DEFAULT_STRATEGIES, search_theory
+from .core import PropError, Theory, load_theory
+from .search import (
+    DEFAULT_STRATEGIES,
+    STRATEGY_SPECS,
+    SearchConfigurationError,
+    SearchReport,
+    search_theory,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -20,26 +30,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--auto", action="store_true", help="run every available heuristic (default)"
     )
-    parser.add_argument(
-        "--presence-checking",
-        "--presence_checking",
-        "--max-occurrence",
-        dest="presence",
-        action="store_true",
-        help="run Boolean max/occurrence models",
-    )
-    parser.add_argument("--counting", action="store_true", help="run modular counting models")
-    parser.add_argument("--substitution", action="store_true", help="run projective substitutions")
-    parser.add_argument(
-        "--determinant",
-        action="store_true",
-        help="run scaled determinant-phase models",
-    )
-    parser.add_argument(
-        "--amalgam",
-        action="store_true",
-        help="search finite factors and free-product-with-amalgamation models",
-    )
+    for spec in STRATEGY_SPECS:
+        parser.add_argument(
+            *spec.flags,
+            dest=spec.name,
+            action="store_true",
+            help=spec.help,
+        )
     parser.add_argument(
         "--max-amalgam-prime",
         type=int,
@@ -69,21 +66,6 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=32,
         help="largest ambient finite-field matrix dimension (default: 32)",
-    )
-    parser.add_argument(
-        "--spin-cover",
-        "--spin_cover",
-        dest="spin",
-        action="store_true",
-        help="run Spin-cover commutator certificates",
-    )
-    parser.add_argument(
-        "--finite-model",
-        "--finite_model",
-        "--permutation-model",
-        dest="finite_model",
-        action="store_true",
-        help="search small permutation interpretations",
     )
     parser.add_argument(
         "--equation", action="append", help="search only this equation ID; repeatable"
@@ -122,6 +104,12 @@ def _parser() -> argparse.ArgumentParser:
         help="largest dense Spin matrix dimension (default: 1024)",
     )
     parser.add_argument(
+        "--max-block-matrix-dimension",
+        type=int,
+        default=512,
+        help="largest dense block-normal-form matrix dimension (default: 512)",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=600.0,
@@ -145,40 +133,120 @@ def _selected_strategies(args: argparse.Namespace) -> tuple[str, ...]:
     return chosen or DEFAULT_STRATEGIES
 
 
+def _search_worker(sender: Any, theory: Theory, options: dict[str, Any]) -> None:
+    try:
+        sender.send((True, search_theory(theory, **options)))
+    # The parent must receive internal failures instead of mistaking them for
+    # a timeout. This process boundary is the one intentional broad catch.
+    except Exception as error:  # noqa: BLE001
+        sender.send((False, error))
+    finally:
+        sender.close()
+
+
+def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
+    """Run the CLI search in a process so its timeout can interrupt native code."""
+
+    timeout = float(options["timeout"])
+    if not math.isfinite(timeout) or timeout < 0:
+        return search_theory(theory, **options)
+    preflight_options = {**options, "timeout": 0.0}
+    preflight = search_theory(theory, **preflight_options)
+    if timeout == 0 or not preflight.timed_out:
+        return preflight
+
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_search_worker,
+        args=(sender, theory, options),
+        daemon=True,
+    )
+    start = time.monotonic()
+    process.start()
+    sender.close()
+    try:
+        if receiver.poll(timeout):
+            try:
+                succeeded, value = receiver.recv()
+            except EOFError as exc:
+                process.join()
+                raise PropError(
+                    "search worker exited without returning a result "
+                    f"(exit code {process.exitcode})"
+                ) from exc
+            process.join()
+            if succeeded:
+                return value
+            raise value
+    finally:
+        if process.is_alive():
+            process.terminate()
+        process.join()
+        receiver.close()
+
+    return SearchReport(
+        theory.name or "theory",
+        {},
+        preflight.unresolved,
+        time.monotonic() - start,
+        True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
+    hard_timeout = argv is None
     args = parser.parse_args(argv)
 
     try:
         theory = load_theory(args.theory)
-        report = search_theory(
-            theory,
-            strategies=_selected_strategies(args),
-            equation_ids=set(args.equation) if args.equation else None,
-            max_arity=args.max_arity,
-            timeout=args.timeout,
-            max_modulus=args.max_modulus,
-            max_depth=args.max_depth,
-            max_substitution_matrix_entries=args.max_substitution_matrix_entries,
-            max_permutation_degree=args.max_permutation_degree,
-            max_amalgam_prime=args.max_amalgam_prime,
-            max_amalgam_order=args.max_amalgam_order,
-            max_amalgam_bridge_generators=args.max_amalgam_bridge_generators,
-            max_amalgam_scalars=args.max_amalgam_scalars,
-            max_amalgam_matrix_dimension=args.max_amalgam_matrix_dimension,
-            max_spin_matrix_dimension=args.max_spin_matrix_dimension,
+        options = {
+            "strategies": _selected_strategies(args),
+            "equation_ids": set(args.equation) if args.equation else None,
+            "max_arity": args.max_arity,
+            "timeout": args.timeout,
+            "max_modulus": args.max_modulus,
+            "max_depth": args.max_depth,
+            "max_substitution_matrix_entries": (
+                args.max_substitution_matrix_entries
+            ),
+            "max_permutation_degree": args.max_permutation_degree,
+            "max_amalgam_prime": args.max_amalgam_prime,
+            "max_amalgam_order": args.max_amalgam_order,
+            "max_amalgam_bridge_generators": (
+                args.max_amalgam_bridge_generators
+            ),
+            "max_amalgam_scalars": args.max_amalgam_scalars,
+            "max_amalgam_matrix_dimension": args.max_amalgam_matrix_dimension,
+            "max_spin_matrix_dimension": args.max_spin_matrix_dimension,
+            "max_block_matrix_dimension": args.max_block_matrix_dimension,
+        }
+        report = (
+            _timed_search(theory, options)
+            if hard_timeout
+            else search_theory(theory, **options)
         )
-    except (OSError, ValueError) as error:
+    except (OSError, PropError, SearchConfigurationError) as error:
         parser.exit(2, f"error: {error}\n")
 
     if args.json_output:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     else:
-        print(f"{report.theory}: {len(report.witnesses)} separator(s) found")
+        certified = sum(
+            witness.certified for witness in report.witnesses.values()
+        )
+        numerical = len(report.witnesses) - certified
+        summary = f"{report.theory}: {certified} separator(s) found"
+        if numerical:
+            summary += f", {numerical} numerical candidate(s)"
+        print(summary)
         for equation, witness in report.witnesses.items():
-            print(f"  [found] {equation}: {witness.description}")
+            label = "found" if witness.certified else "numerical"
+            print(f"  [{label}] {equation}: {witness.description}")
         for equation in report.unresolved:
-            print(f"  [open]  {equation}")
+            if equation not in report.witnesses:
+                print(f"  [open]  {equation}")
         suffix = " (timeout)" if report.timed_out else ""
         print(f"elapsed: {report.elapsed_seconds:.3f}s{suffix}")
 

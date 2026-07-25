@@ -1,44 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import suppress
+from itertools import permutations
 from math import isqrt
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 
-from ..core import Circuit, ValidationError, evaluate_matrix, primitive_occurrences
-from ..search import CandidateModel, Deadline, NotApplicable, relevant_equations
-
+from ..core import (
+    Circuit,
+    ValidationError,
+    _wire_size_matches,
+    primitive_occurrences,
+)
+from ..matrix import evaluate_matrix
+from ..search import CandidateModel, Deadline, NotApplicable
+from .common import projectively_equal, retained_equations
 
 DEFAULT_MAX_MATRIX_ENTRIES = 1_000_000
-
-
-def _projectively_equal(left: np.ndarray, right: np.ndarray, tolerance: float = 1e-8) -> bool:
-    left = np.asarray(left, dtype=complex)
-    right = np.asarray(right, dtype=complex)
-    if left.shape != right.shape:
-        return False
-    if not np.all(np.isfinite(left)) or not np.all(np.isfinite(right)):
-        return False
-    if not left.size:
-        return True
-    left_scale = float(np.max(np.abs(left)))
-    right_scale = float(np.max(np.abs(right)))
-    if left_scale == 0.0 or right_scale == 0.0:
-        return left_scale == right_scale
-
-    scale = max(left_scale, right_scale)
-    left = left / scale
-    right = right / scale
-
-    # Choose the pivot symmetrically so comparison is order-independent.
-    joint_scale = np.maximum(np.abs(left), np.abs(right))
-    index = np.unravel_index(int(np.argmax(joint_scale)), right.shape)
-    if abs(left[index]) <= tolerance or abs(right[index]) <= tolerance:
-        return False
-    phase = left[index] / right[index]
-    phase /= abs(phase)
-    residual = float(np.max(np.abs(left - phase * right)))
-    return residual <= tolerance
+PROJECTIVE_TOLERANCE = 1e-8
+_Operation = tuple[str, str, int, int]
 
 
 def _fingerprint(matrix: np.ndarray) -> bytes:
@@ -86,8 +68,7 @@ def _generator_catalog(
             name = term.name or ""
             if name in active or name not in theory.macros:
                 raise ValidationError(f"invalid recursive macro {name!r}")
-            definition = theory.macros[name]
-            body = getattr(definition, "body", definition)
+            body = theory.macros[name]
             if body.type != term.type:
                 raise ValidationError(f"macro {name!r} has inconsistent type")
             if name in visited_macros:
@@ -111,83 +92,29 @@ def _placements(
     width: int,
     deadline: Deadline,
 ) -> Iterator[tuple[int, ...]]:
-    """Generate ordered wire selections without materializing the ambient set."""
     if width < 0 or width > wires:
         return
-    if width == 0:
-        yield ()
-        return
-    chosen: list[int] = []
-    used: set[int] = set()
-    next_values = [0]
-    while next_values:
+    for placement in permutations(range(wires), width):
         deadline.check()
-        candidate = next_values[-1]
-        scanned = 0
-        while candidate < wires and candidate in used:
-            candidate += 1
-            scanned += 1
-            if scanned % 1024 == 0:
-                deadline.check()
-        if candidate >= wires:
-            next_values.pop()
-            if chosen:
-                used.remove(chosen.pop())
-            continue
-        next_values[-1] = candidate + 1
-        chosen.append(candidate)
-        used.add(candidate)
-        if len(chosen) == width:
-            yield tuple(chosen)
-            used.remove(chosen.pop())
-        else:
-            next_values.append(0)
+        yield placement
 
 
 def _operation_alphabet(
-    theory: Any,
+    wire_dimension: int,
     wires: int,
-    usable_generators: frozenset[str],
-    macro_wire_counts: dict[str, int],
-    max_matrix_entries: int,
+    operations: tuple[_Operation, ...],
     deadline: Deadline,
 ) -> Iterator[tuple[dict[str, Any], int]]:
-    wire_dimension = int(theory.wire_dimension)
-    for generator in sorted(theory.signature.values(), key=lambda item: item.name):
+    for kind, name, source, target in operations:
         deadline.check()
-        source, target = _arity(generator)
-        if generator.name not in usable_generators or source > wires:
+        if source > wires:
             continue
         for placement in _placements(wires, source, deadline):
             deadline.check()
             yield (
-                {"gen": generator.name, "on": list(placement)},
+                {kind: name, "on": list(placement)},
                 wires - source + target,
             )
-            if wire_dimension == 1:
-                break
-    for macro in sorted(theory.macros.values(), key=lambda item: item.name):
-        deadline.check()
-        try:
-            source, target = _arity(macro)
-            name = macro.name
-        except (AttributeError, TypeError):
-            continue
-        body = getattr(macro, "body", macro)
-        required = set(primitive_occurrences(body, theory.macros))
-        if (
-            source > wires
-            or not required <= usable_generators
-            or not _matrix_budget_allows(
-                int(theory.wire_dimension),
-                macro_wire_counts[name],
-                max_matrix_entries,
-            )
-        ):
-            continue
-        for placement in _placements(wires, source, deadline):
-            deadline.check()
-            yield {"macro": name, "on": list(placement)}, wires - source + target
             if wire_dimension == 1:
                 break
     if wire_dimension > 1 and wires >= 2:
@@ -212,12 +139,6 @@ def _matrix_budget_allows(
     return wires <= limit.bit_length() and wire_dimension**wires <= limit
 
 
-def _dimension_matches(size: int, wire_dimension: int, wires: int) -> bool:
-    if wire_dimension == 1:
-        return size == 1
-    return wires <= size.bit_length() and wire_dimension**wires == size
-
-
 def _maximum_wires(
     term: Circuit,
     macros: Any,
@@ -228,8 +149,7 @@ def _maximum_wires(
         name = term.name or ""
         if name in active or name not in macros:
             raise ValidationError(f"invalid recursive macro {name!r}")
-        definition = macros[name]
-        body = getattr(definition, "body", definition)
+        body = macros[name]
         if body.type != term.type:
             raise ValidationError(f"macro {name!r} has inconsistent type")
         if name in cache:
@@ -251,8 +171,7 @@ def _replacement_terms(
     outputs: int,
     depth: int,
     deadline: Deadline,
-    usable_generators: frozenset[str],
-    macro_wire_counts: dict[str, int],
+    operation_records: tuple[_Operation, ...],
     max_matrix_entries: int,
 ) -> Iterator[tuple[Any, str]]:
     if depth == 0:
@@ -263,17 +182,15 @@ def _replacement_terms(
             )
         return
 
-    Frame = tuple[int, int, Iterator[tuple[dict[str, Any], int]]]
+    wire_dimension = int(theory.wire_dimension)
+    Frame = tuple[int, Iterator[tuple[dict[str, Any], int]]]
     stack: list[Frame] = [
         (
-            inputs,
             depth,
             _operation_alphabet(
-                theory,
+                wire_dimension,
                 inputs,
-                usable_generators,
-                macro_wire_counts,
-                max_matrix_entries,
+                operation_records,
                 deadline,
             ),
         )
@@ -281,7 +198,7 @@ def _replacement_terms(
     word: list[dict[str, Any]] = []
     while stack:
         deadline.check()
-        wires, remaining, operations = stack[-1]
+        remaining, operations = stack[-1]
         try:
             operation, next_wires = next(operations)
         except StopIteration:
@@ -290,21 +207,18 @@ def _replacement_terms(
                 word.pop()
             continue
         if not _matrix_budget_allows(
-            int(theory.wire_dimension), next_wires, max_matrix_entries
+            wire_dimension, next_wires, max_matrix_entries
         ):
             continue
         word.append(operation)
         if remaining > 1:
             stack.append(
                 (
-                    next_wires,
                     remaining - 1,
                     _operation_alphabet(
-                        theory,
+                        wire_dimension,
                         next_wires,
-                        usable_generators,
-                        macro_wire_counts,
-                        max_matrix_entries,
+                        operation_records,
                         deadline,
                     ),
                 )
@@ -314,10 +228,8 @@ def _replacement_terms(
             word.pop()
             continue
         data = {"wires": inputs, "ops": list(word)}
-        try:
+        with suppress(TypeError, ValueError):
             yield Circuit.from_json(data, theory.signature, theory.macros), _word_label(word)
-        except (TypeError, ValueError, ValidationError):
-            pass
         word.pop()
 
 
@@ -341,7 +253,7 @@ def candidates(
     deadline: Deadline,
     max_depth: int = 3,
     max_substitution_matrix_entries: int = DEFAULT_MAX_MATRIX_ENTRIES,
-    **_: Any,
+    context: Any = None,
 ) -> Iterator[CandidateModel]:
     depth = bound
     if depth < 0 or depth > max_depth:
@@ -349,7 +261,7 @@ def candidates(
     wire_dimension = int(theory.wire_dimension)
     if wire_dimension < 1:
         raise NotApplicable("wire dimension must be positive")
-    checked = [*relevant_equations(theory, target), target]
+    checked = [*retained_equations(theory, target, context), target]
     generators = _generator_catalog(theory, checked)
     if not generators:
         raise NotApplicable("the checked theory has no consistently typed generators")
@@ -367,20 +279,37 @@ def candidates(
             continue
         if (
             matrix.ndim == 2
-            and _dimension_matches(matrix.shape[0], wire_dimension, target_arity)
-            and _dimension_matches(matrix.shape[1], wire_dimension, source)
+            and _wire_size_matches(matrix.shape[0], wire_dimension, target_arity)
+            and _wire_size_matches(matrix.shape[1], wire_dimension, source)
             and np.all(np.isfinite(matrix))
         ):
             usable.add(generator.name)
     usable_generators = frozenset(usable)
 
-    macro_wire_counts: dict[str, int] = {}
-    for macro in theory.macros.values():
-        deadline.check()
-        body = getattr(macro, "body", macro)
-        macro_wire_counts[macro.name] = _maximum_wires(
-            body, theory.macros, macro_wire_counts, [macro.name]
+    operations: list[_Operation] = [
+        ("gen", generator.name, *_arity(generator))
+        for generator in sorted(
+            theory.signature.values(), key=lambda item: item.name
         )
+        if generator.name in usable_generators
+    ]
+    macro_wire_counts: dict[str, int] = {}
+    for name, body in sorted(theory.macros.items()):
+        deadline.check()
+        macro_wire_counts[name] = _maximum_wires(
+            body, theory.macros, macro_wire_counts, [name]
+        )
+        if (
+            set(primitive_occurrences(body, theory.macros))
+            <= usable_generators
+            and _matrix_budget_allows(
+                wire_dimension,
+                macro_wire_counts[name],
+                max_substitution_matrix_entries,
+            )
+        ):
+            operations.append(("macro", name, *_arity(body)))
+    operation_records = tuple(operations)
 
     required: set[str] = set()
     for equation in checked:
@@ -419,8 +348,7 @@ def candidates(
             target_arity,
             depth,
             deadline,
-            usable_generators,
-            macro_wire_counts,
+            operation_records,
             max_substitution_matrix_entries,
         ):
             deadline.check()
@@ -431,7 +359,7 @@ def candidates(
                     theory.macros,
                     wire_dimension,
                 )
-            except (TypeError, ValueError, ValidationError, OverflowError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             replacement_matrix = np.asarray(replacement_matrix, dtype=complex)
             expected = (wire_dimension**target_arity, wire_dimension**source)
@@ -456,9 +384,20 @@ def candidates(
 
             yield CandidateModel(
                 kind="substitution",
-                description=f"projective substitution {generator.name} := {label}",
-                parameters={"generator": generator.name, "replacement": label, "depth": depth},
+                description=(
+                    f"numerical projective substitution "
+                    f"{generator.name} := {label}"
+                ),
+                parameters={
+                    "generator": generator.name,
+                    "replacement": label,
+                    "depth": depth,
+                    "matrix_tolerance": PROJECTIVE_TOLERANCE,
+                },
                 evaluator=evaluate,
-                equality=_projectively_equal,
+                equality=lambda left, right: projectively_equal(
+                    left, right, PROJECTIVE_TOLERANCE
+                ),
                 key=(generator.name, fingerprint),
+                certified=False,
             )

@@ -1,49 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from itertools import product
-from typing import Any, Iterator
+from typing import Any
 
 from ..core import primitive_occurrences, structural_permutation_parity
 from ..search import CandidateModel, Deadline
-from .presence import _primitive_names
-
-
-def _wire_parity_is_preserved(theory: Any, *extra_terms: Any) -> bool:
-    """Whether the sign character extends over every supplied generator.
-
-    A nonzero swap value has order two.  Naturality around ``f: m -> n``
-    requires ``m*s = n*s``, so preserving wire parity is necessary and
-    sufficient; requiring every generator to be an endomorphism would be
-    unnecessarily restrictive.
-    """
-
-    def preserves(root: Any) -> bool:
-        pending = [root]
-        while pending:
-            node = pending.pop()
-            if (
-                getattr(node, "kind", None) == "gen"
-                and int(node.inputs) % 2 != int(node.outputs) % 2
-            ):
-                return False
-            pending.extend(getattr(node, "parts", ()))
-        return True
-
-    if any(
-        int(generator.inputs) % 2 != int(generator.outputs) % 2
-        for generator in theory.signature.values()
-    ):
-        return False
-    for definition in theory.macros.values():
-        body = getattr(definition, "body", definition)
-        if not preserves(body):
-            return False
-    theory_terms_are_safe = all(
-        preserves(side)
-        for equation in theory.equations
-        for side in (equation.lhs, equation.rhs)
-    )
-    return theory_terms_are_safe and all(preserves(term) for term in extra_terms)
+from .common import primitive_names, wire_parity_is_preserved
 
 
 def candidates(
@@ -53,19 +16,30 @@ def candidates(
     bound: int,
     deadline: Deadline,
     max_modulus: int = 8,
-    **_: Any,
+    context: Any = None,
 ) -> Iterator[CandidateModel]:
     """Additive ``Z/m`` PROP models, optionally using the swap sign."""
     modulus = bound
     if modulus < 2 or modulus > max_modulus:
         return
-    names = _primitive_names(theory, target, deadline)
-    nonzero_swap_is_sound = modulus % 2 == 0 and _wire_parity_is_preserved(
+    names = primitive_names(theory, target, deadline, context)
+    nonzero_swap_is_sound = modulus % 2 == 0 and wire_parity_is_preserved(
         theory, target.lhs, target.rhs
     )
     swap_values = (0, modulus // 2) if nonzero_swap_is_sound else (0,)
-    assignments = product(range(modulus), repeat=len(names))
-    for values in assignments:
+
+    def features(term: Any) -> tuple[Any, int]:
+        if context is not None:
+            return (
+                context.occurrences_for(term, theory.macros),
+                context.parity_for(term, theory.macros),
+            )
+        return (
+            primitive_occurrences(term, theory.macros),
+            structural_permutation_parity(term, theory.macros),
+        )
+
+    for values in product(range(modulus), repeat=len(names)):
         deadline.check()
         weights = dict(zip(names, values, strict=True))
         for swap in swap_values:
@@ -78,9 +52,9 @@ def candidates(
                 swap: int = swap,
                 modulus: int = modulus,
             ) -> int:
-                counts = primitive_occurrences(term, theory.macros)
-                total = sum(counts.get(name, 0) * value for name, value in weights.items())
-                total += structural_permutation_parity(term, theory.macros) * swap
+                counts, parity = features(term)
+                total = sum(counts[name] * value for name, value in weights.items())
+                total += parity * swap
                 return total % modulus
 
             nonzero = {name: value for name, value in weights.items() if value}
@@ -92,5 +66,4 @@ def candidates(
                 description=description,
                 parameters={"modulus": modulus, "weights": nonzero, "swap": swap},
                 evaluator=evaluate,
-                key=(modulus, values, swap),
             )

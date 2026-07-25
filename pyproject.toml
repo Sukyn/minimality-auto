@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.11"]
 
 [project.scripts]
 minimality-auto = "minimality_auto.main:main"
@@ -22,3 +22,39 @@ packages = ["src/minimality_auto"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+timeout = 30
+markers = [
+  "integration: bounded searches across complete imported theories",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ARG",
+  "B",
+  "BLE",
+  "C4",
+  "C90",
+  "E4",
+  "E7",
+  "E9",
+  "E501",
+  "F",
+  "FURB",
+  "I",
+  "PERF",
+  "PIE",
+  "PTH",
+  "RET",
+  "RUF",
+  "SIM",
+  "UP",
+]
+ignore = ["RUF005"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25

@@ -4,35 +4,37 @@
 # when all generators have at most two wires.  It may generalize to show the
 # necessity of a four-wire rule in theories with generators such as Toffoli.
 
-"""Conservative three-wire block-normal-form certificates.
+"""Conservative numerical three-wire block-normal-form evidence.
 
 PROP coherence supplies the routed word; the Brylinski--Brylinski criterion
 classifies each two-wire block as local, SWAP-local, or entangling.  We compare
-every minimum adjacent routing and certify only alternating forms whose
+every minimum adjacent routing and retain only alternating forms whose
 non-routing blocks each contain one entangling box.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import heapq
+from collections.abc import Iterator
+from dataclasses import dataclass
 from itertools import count
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 
-from ..core import Circuit, evaluate_matrix, primitive_occurrences
+from ..core import Circuit, ValidationError, expand_macros, primitive_occurrences
+from ..matrix import permutation_matrix
 from ..search import (
     Deadline,
+    DirectCertificate,
     NotApplicable,
-    Separation,
-    equation_arity,
-    equation_id,
-    relevant_equations,
 )
-from .finite_model import _require_endomorphic_theory
-from .substitution import _projectively_equal
-
+from .common import (
+    numerical_matrix,
+    projectively_equal,
+    require_endomorphic_theory,
+    retained_equations,
+)
 
 UNITARY_TOLERANCE = 1e-8
 LOCAL_TOLERANCE = 1e-10
@@ -57,30 +59,8 @@ class _Step:
     reversed_ports: bool = False
 
 
-def _swap(dimension: int) -> np.ndarray:
-    value = np.zeros((dimension**2, dimension**2), dtype=np.complex128)
-    for left in range(dimension):
-        for right in range(dimension):
-            value[right * dimension + left, left * dimension + right] = 1
-    return value
-
-
 def _matrix(theory: Any, term: Circuit) -> np.ndarray:
-    try:
-        value = np.asarray(
-            evaluate_matrix(
-                term,
-                theory.signature,
-                theory.macros,
-                theory.wire_dimension,
-            ),
-            dtype=np.complex128,
-        )
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise NotApplicable("the block argument needs valid matrices") from exc
-    if not np.all(np.isfinite(value)):
-        raise NotApplicable("the block argument needs finite matrices")
-    return value
+    return numerical_matrix(theory, term, "the block argument")
 
 
 def _active_generator_matrices(
@@ -106,7 +86,7 @@ def _active_generator_matrices(
                 "active primitives must be matrix-defined 0-, 1-, or 2-wire "
                 "endomorphisms"
             )
-        value = _matrix(theory, Circuit.generator(generator))
+        value = np.asarray(generator.matrix, dtype=np.complex128)
         size = dimension**generator.inputs
         identity = np.eye(size, dtype=np.complex128)
         if value.shape != (size, size) or not np.allclose(
@@ -121,10 +101,8 @@ def _active_generator_matrices(
 
 
 def _trace_node(
-    theory: Any,
     term: Circuit,
     layout: tuple[int, ...],
-    macros: tuple[str, ...],
 ) -> tuple[list[_Event], tuple[int, ...]]:
     """Move structural permutations to the boundary and retain logical boxes."""
 
@@ -142,19 +120,11 @@ def _trace_node(
         if term.inputs != 2:
             raise NotApplicable("target boxes must act on at most two wires")
         return [_Event(term.name or "", (layout[0], layout[1]))], layout
-    if term.kind == "macro":
-        name = term.name or ""
-        if name in macros:
-            raise NotApplicable("recursive macros are unsupported")
-        body = theory.macros.get(name)
-        if body is None:
-            raise NotApplicable(f"unknown macro {name!r}")
-        return _trace_node(theory, body, layout, (*macros, name))
     if term.kind == "compose":
         events: list[_Event] = []
         current = layout
         for part in term.parts:
-            found, current = _trace_node(theory, part, current, macros)
+            found, current = _trace_node(part, current)
             events.extend(found)
         return events, current
     if term.kind == "tensor":
@@ -163,9 +133,7 @@ def _trace_node(
         offset = 0
         for part in term.parts:
             part_layout = layout[offset : offset + part.inputs]
-            found, part_output = _trace_node(
-                theory, part, part_layout, macros
-            )
+            found, part_output = _trace_node(part, part_layout)
             events.extend(found)
             output.extend(part_output)
             offset += part.inputs
@@ -178,7 +146,11 @@ def _logical_trace(
 ) -> tuple[tuple[_Event, ...], Layout]:
     if term.type != (3, 3):
         raise NotApplicable("the block argument is a three-wire invariant")
-    events, output = _trace_node(theory, term, (0, 1, 2), ())
+    try:
+        expanded = expand_macros(term, theory.macros)
+    except ValidationError as exc:
+        raise NotApplicable(str(exc)) from exc
+    events, output = _trace_node(expanded, (0, 1, 2))
     return tuple(events), (output[0], output[1], output[2])
 
 
@@ -206,9 +178,9 @@ def _routing_paths(
     best: dict[State, int] = {start: 0}
     paths: dict[State, set[tuple[_Step, ...]]] = {start: {()}}
     serial = count()
-    queue: list[
-        tuple[int, int, int, State, tuple[_Step, ...]]
-    ] = [(0, 0, next(serial), start, ())]
+    queue: list[tuple[int, int, State, tuple[_Step, ...]]] = [
+        (0, next(serial), start, ())
+    ]
 
     def push(
         state: State, blocks: int, path: tuple[_Step, ...]
@@ -226,14 +198,11 @@ def _routing_paths(
             bucket.add(path)
         else:
             return
-        swaps = sum(step.name is None for step in path)
-        heapq.heappush(
-            queue, (blocks, swaps, next(serial), state, path)
-        )
+        heapq.heappush(queue, (blocks, next(serial), state, path))
 
     while queue:
         deadline.check()
-        blocks, _, _, state, path = heapq.heappop(queue)
+        blocks, _, state, path = heapq.heappop(queue)
         if best.get(state) != blocks or path not in paths[state]:
             continue
         index, layout, last_pair = state
@@ -438,7 +407,8 @@ def _block_kind(
 ) -> tuple[str, dict[str, Any]]:
     local, local_minor, local_witness = _rank_status(matrix, dimension)
     swapped, swapped_minor, swapped_witness = _rank_status(
-        matrix @ _swap(dimension), dimension
+        matrix @ permutation_matrix((1, 0), dimension),
+        dimension,
     )
     data = {
         "largest_normalized_minor": local_minor,
@@ -462,11 +432,11 @@ def candidates(
     bound: int,
     deadline: Deadline,
     max_block_matrix_dimension: int = DEFAULT_MAX_MATRIX_DIMENSION,
-    **_: Any,
-) -> Iterator[Separation]:
+    context: Any = None,
+) -> Iterator[DirectCertificate]:
     if bound != 3:
         return
-    _require_endomorphic_theory(theory, deadline)
+    require_endomorphic_theory(theory, deadline, context)
     if target.lhs.type != (3, 3) or target.rhs.type != (3, 3):
         return
 
@@ -478,8 +448,8 @@ def candidates(
             f"ambient matrix dimension exceeds {max_block_matrix_dimension}"
         )
 
-    retained = relevant_equations(theory, target)
-    if any(equation_arity(equation) > 2 for equation in retained):
+    retained = retained_equations(theory, target, context)
+    if any(equation.arity > 2 for equation in retained):
         raise NotApplicable("a retained relevant equation acts on three wires")
 
     terms = (
@@ -501,13 +471,13 @@ def candidates(
 
     for equation in (*retained, target):
         deadline.check()
-        if not _projectively_equal(
+        if not projectively_equal(
             _matrix(theory, equation.lhs),
             _matrix(theory, equation.rhs),
             UNITARY_TOLERANCE,
         ):
             raise NotApplicable(
-                f"equation {equation_id(equation)!r} is not matrix-sound "
+                f"equation {equation.id!r} is not matrix-sound "
                 "up to global phase"
             )
 
@@ -529,11 +499,10 @@ def candidates(
         difference = (
             f"{left['block_count']} versus {right['block_count']} blocks"
         )
-    yield Separation(
-        equation=equation_id(target),
-        strategy="block_normal_form",
+    yield DirectCertificate(
         description=(
-            f"three-wire irreducible block normal forms differ ({difference})"
+            f"numerical three-wire irreducible block normal forms differ "
+            f"({difference})"
         ),
         parameters={
             "wire_dimension": dimension,
@@ -550,7 +519,7 @@ def candidates(
             "local_tolerance": LOCAL_TOLERANCE,
             "entangling_tolerance": ENTANGLING_TOLERANCE,
         },
-        checked_equations=tuple(equation_id(equation) for equation in retained),
         lhs_value=left,
         rhs_value=right,
+        certified=False,
     )

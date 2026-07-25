@@ -1,27 +1,23 @@
-"""Spin-cover separators for high-arity commutation equations."""
+"""Numerical Spin-cover evidence for high-arity commutation equations."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any
 
 import numpy as np
 
 from ..core import (
     Circuit,
-    evaluate_matrix,
     expand_macros,
     primitive_occurrences,
 )
 from ..search import (
     Deadline,
+    DirectCertificate,
     NotApplicable,
-    Separation,
-    equation_id,
-    relevant_equations,
 )
-from .finite_model import _require_endomorphic_theory
-
+from .common import numerical_matrix, require_endomorphic_theory, retained_equations
 
 TOLERANCE = 1e-12
 MAX_DENSE_DIMENSION = 1024
@@ -35,24 +31,21 @@ def _rank(value: np.ndarray) -> int:
     return int(np.linalg.matrix_rank(value, tol=TOLERANCE))
 
 
+def _is_real_orthogonal_involution(
+    value: np.ndarray, identity: np.ndarray
+) -> bool:
+    return (
+        value.shape == identity.shape
+        and bool(np.all(np.isfinite(value)))
+        and _close(value.imag, np.zeros_like(value.imag))
+        and _close(value.T, value)
+        and _close(value.T @ value, identity)
+        and _close(value @ value, identity)
+    )
+
+
 def _matrix(theory: Any, term: Circuit) -> np.ndarray:
-    try:
-        value = np.asarray(
-            evaluate_matrix(
-                term,
-                theory.signature,
-                theory.macros,
-                theory.wire_dimension,
-            ),
-            dtype=np.complex128,
-        )
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise NotApplicable(
-            "Spin-cover search needs valid matrices for every active primitive"
-        ) from exc
-    if not np.all(np.isfinite(value)):
-        raise NotApplicable("Spin-cover search requires finite matrix entries")
-    return value
+    return numerical_matrix(theory, term, "Spin-cover search")
 
 
 def _parts(term: Circuit) -> tuple[Circuit, ...]:
@@ -62,14 +55,9 @@ def _parts(term: Circuit) -> tuple[Circuit, ...]:
 
 def _check_reflection(name: str, value: np.ndarray, width: int) -> None:
     size = 1 << width
-    if value.shape != (size, size) or not np.all(np.isfinite(value)):
-        raise NotApplicable(f"{name} is not a real orthogonal reflection")
     identity = np.eye(size, dtype=np.complex128)
     if (
-        not _close(value.imag, np.zeros_like(value.imag))
-        or not _close(value.T, value)
-        or not _close(value.T @ value, identity)
-        or not _close(value @ value, identity)
+        not _is_real_orthogonal_involution(value, identity)
         or _rank(identity - value) != 1
         or not np.isclose(
             np.linalg.det(value).real,
@@ -126,16 +114,11 @@ def _commutator_data(
     if left_first.shape != left_second.shape:
         return None
     identity = np.eye(left_first.shape[0], dtype=np.complex128)
-    zero = np.zeros_like(left_first.real)
-    for value in (left_first, left_second):
-        if (
-            not np.all(np.isfinite(value))
-            or not _close(value.imag, zero)
-            or not _close(value.T, value)
-            or not _close(value.T @ value, identity)
-            or not _close(value @ value, identity)
-        ):
-            return None
+    if any(
+        not _is_real_orthogonal_involution(value, identity)
+        for value in (left_first, left_second)
+    ):
+        return None
     if not _close(left_first @ left_second, left_second @ left_first):
         return None
 
@@ -195,8 +178,8 @@ def candidates(
     bound: int,
     deadline: Deadline,
     max_spin_matrix_dimension: int = MAX_DENSE_DIMENSION,
-    **_: Any,
-) -> Iterator[Separation]:
+    context: Any = None,
+) -> Iterator[DirectCertificate]:
     if bound != 0:
         return
     if (
@@ -204,7 +187,7 @@ def candidates(
         or target.lhs.inputs != target.lhs.outputs
     ):
         return
-    _require_endomorphic_theory(theory, deadline)
+    require_endomorphic_theory(theory, deadline, context)
     arity = target.lhs.inputs
     if arity < 5:
         return
@@ -218,7 +201,7 @@ def candidates(
             f"ambient matrix dimension exceeds {max_spin_matrix_dimension}"
         )
 
-    retained = relevant_equations(theory, target)
+    retained = retained_equations(theory, target, context)
     active = _active_generators(
         theory,
         (
@@ -281,7 +264,7 @@ def candidates(
             deadline.check()
             if not _close(left, right):
                 raise NotApplicable(
-                    f"retained equation {equation_id(equation)!r} is not matrix-sound"
+                f"retained equation {equation.id!r} is not matrix-sound"
                 )
         else:
             data = _find_cyclic_reversal_lifts(
@@ -293,12 +276,12 @@ def candidates(
             )
             if data is None:
                 raise NotApplicable(
-                    f"retained equation {equation_id(equation)!r} has no "
+                f"retained equation {equation.id!r} has no "
                     "certified trivial block-lift sign"
                 )
             full_arity_reversals.append(
                 {
-                    "equation": equation_id(equation),
+                "equation": equation.id,
                     "minus_dimensions": [data[0], data[1]],
                     "intersection_dimension": data[2],
                     "commutator_sign": 1,
@@ -316,8 +299,8 @@ def candidates(
         return
     first_dim, second_dim, intersection_dim = data
     description = (
-        f"ambient-{arity}-wire Spin-cover invariant: the commuting target "
-        "factors lift with sign -1"
+        f"numerical ambient-{arity}-wire Spin-cover evidence: the commuting "
+        "target factors lift with sign -1"
     )
     if full_arity_reversals:
         description += (
@@ -325,9 +308,7 @@ def candidates(
             "reversal(s) have sign +1"
         )
 
-    yield Separation(
-        equation=equation_id(target),
-        strategy="spin",
+    yield DirectCertificate(
         description=description,
         parameters={
             "arity": arity,
@@ -339,7 +320,7 @@ def candidates(
             "commutator_sign": -1,
             "full_arity_retained_reversals": full_arity_reversals,
         },
-        checked_equations=tuple(equation_id(equation) for equation in retained),
         lhs_value={"orthogonal_value": "same", "spin_lift": "u"},
         rhs_value={"orthogonal_value": "same", "spin_lift": "-u"},
+        certified=False,
     )

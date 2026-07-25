@@ -1,8 +1,6 @@
-def main() -> int:
-    from .main import main as cli_main
+"""Command-line entry point."""
 
-    return cli_main()
-
+from .main import main
 
 if __name__ == "__main__":
     raise SystemExit(main())
