@@ -28,7 +28,8 @@ python -m minimality_auto THEORY.json --substitution --max-depth 3
 python -m minimality_auto THEORY.json --equation RULE_ID --timeout 60 --json
 ```
 
-`--equation` may be repeated. The timeout is in seconds and defaults to 600.
+`--equation` may be repeated. The timeout is in seconds, defaults to 600, and
+is enforced by the CLI in a separate process.
 
 Run `python -m minimality_auto --help` for every option.
 
@@ -38,7 +39,7 @@ Run `python -m minimality_auto --help` for every option.
 {
   "name": "example",
   "generators": {
-    "H": [1, 1]
+    "H": 1
   },
   "equations": [
     {
@@ -50,12 +51,29 @@ Run `python -m minimality_auto --help` for every option.
 }
 ```
 
-Generator types are `[inputs, outputs]`. Terms use `gen`, `macro`, `id`, `perm`, `compose`, or `tensor`; composition is listed in execution order. Matrices are optional and may be dense arrays or `{"diagonal":[...]}`. They are used by the amalgam, block-normal-form, determinant, substitution, and Spin-cover heuristics. More complete inputs are available in [`theories/`](theories).
+The type `a` is shorthand for the endomorphism `[a, a]`; use
+`[inputs, outputs]` for arity-changing generators. Macros map names directly
+to circuit bodies, with inferred types. Terms use `gen`, `macro`, `id`,
+`perm`, `compose`, or `tensor`; composition is listed in execution order.
+Matrices are optional and may be dense arrays or `{"diagonal":[...]}`. They
+are used by the amalgam, block-normal-form, determinant, substitution, and
+Spin-cover heuristics. More complete inputs are available in
+[`theories/`](theories).
+
+In compact `{"wires":...,"ops":[...]}` circuits, `on` is optional for
+nullary and whole-register operations; a unary placement may use `on: 2`
+instead of `on: [2]`.
+
+Floating-point results are shown as `[numerical]` and serialized with
+`"certified": false`; exact combinatorial results are shown as `[found]`.
+
+TODO: optionally support slower SymPy arithmetic for exact matrix certificates.
 
 The finite-permutation heuristic currently supports endomorphic signatures only. Its PROP constraints are summarized in [`docs/permutation-models.md`](docs/permutation-models.md).
 
 ## Test
 
 ```powershell
+python -m ruff check src tests
 python -m pytest
 ```
