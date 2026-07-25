@@ -22,11 +22,11 @@ from typing import Any
 
 import numpy as np
 
-from ..core import Circuit, ValidationError, expand_macros, primitive_occurrences
+from ..core import Circuit, primitive_occurrences
 from ..matrix import permutation_matrix
 from ..search import (
     Deadline,
-    DirectCertificate,
+    DirectEvidence,
     NotApplicable,
 )
 from .common import (
@@ -68,7 +68,7 @@ def _active_generator_matrices(
 ) -> dict[str, np.ndarray]:
     active: set[str] = set()
     for term in terms:
-        active.update(primitive_occurrences(term, theory.macros))
+        active.update(primitive_occurrences(term))
 
     dimension = int(theory.wire_dimension)
     matrices: dict[str, np.ndarray] = {}
@@ -141,16 +141,10 @@ def _trace_node(
     raise NotApplicable(f"unsupported target node {term.kind!r}")
 
 
-def _logical_trace(
-    theory: Any, term: Circuit
-) -> tuple[tuple[_Event, ...], Layout]:
+def _logical_trace(term: Circuit) -> tuple[tuple[_Event, ...], Layout]:
     if term.type != (3, 3):
         raise NotApplicable("the block argument is a three-wire invariant")
-    try:
-        expanded = expand_macros(term, theory.macros)
-    except ValidationError as exc:
-        raise NotApplicable(str(exc)) from exc
-    events, output = _trace_node(expanded, (0, 1, 2))
+    events, output = _trace_node(term, (0, 1, 2))
     return tuple(events), (output[0], output[1], output[2])
 
 
@@ -433,7 +427,7 @@ def candidates(
     deadline: Deadline,
     max_block_matrix_dimension: int = DEFAULT_MAX_MATRIX_DIMENSION,
     context: Any = None,
-) -> Iterator[DirectCertificate]:
+) -> Iterator[DirectEvidence]:
     if bound != 3:
         return
     require_endomorphic_theory(theory, deadline, context)
@@ -459,8 +453,8 @@ def candidates(
     )
     matrices = _active_generator_matrices(theory, terms, deadline)
 
-    left_trace = _logical_trace(theory, target.lhs)
-    right_trace = _logical_trace(theory, target.rhs)
+    left_trace = _logical_trace(target.lhs)
+    right_trace = _logical_trace(target.rhs)
     target_events = (*left_trace[0], *right_trace[0])
     certificates: dict[str, dict[str, Any]] = {}
     for name in sorted({event.name for event in target_events}):
@@ -499,7 +493,7 @@ def candidates(
         difference = (
             f"{left['block_count']} versus {right['block_count']} blocks"
         )
-    yield DirectCertificate(
+    yield DirectEvidence(
         description=(
             f"numerical three-wire irreducible block normal forms differ "
             f"({difference})"

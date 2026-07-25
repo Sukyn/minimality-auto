@@ -13,7 +13,6 @@ from minimality_auto.core import (
     Generator,
     Signature,
     Theory,
-    expand_macros,
     load_theory,
 )
 from minimality_auto.main import main
@@ -37,11 +36,12 @@ def theory() -> Theory:
 
 def _with_equations(theory: Theory, equations: tuple[Equation, ...]) -> Theory:
     return Theory(
-        theory.signature,
-        equations,
-        dict(theory.macros),
-        theory.name,
-        theory.wire_dimension,
+        signature=theory.signature,
+        equations=equations,
+        macros=dict(theory.macros),
+        name=theory.name,
+        wire_dimension=theory.wire_dimension,
+        source=theory.source,
     )
 
 
@@ -88,13 +88,11 @@ def _assert_matrix_sound(theory: Theory, equation: Equation) -> None:
         evaluate_matrix(
             equation.lhs,
             theory.signature,
-            theory.macros,
             theory.wire_dimension,
         ),
         evaluate_matrix(
             equation.rhs,
             theory.signature,
-            theory.macros,
             theory.wire_dimension,
         ),
         atol=1e-8,
@@ -233,11 +231,11 @@ def test_amalgam_separates_an_unrelated_one_wire_theory():
         {
             "name": "generic_amalgam_toy",
             "wire_dimension": 3,
-            "generators": [
-                {"name": "cycle", "source": 1, "target": 1, "matrix": cycle},
-                {"name": "left_flip", "source": 1, "target": 1, "matrix": reflection},
-                {"name": "bridge", "source": 1, "target": 1, "matrix": reflection},
-            ],
+            "generators": {
+                "cycle": {"type": 1, "matrix": cycle},
+                "left_flip": {"type": 1, "matrix": reflection},
+                "bridge": {"type": 1, "matrix": reflection},
+            },
             "equations": [
                 {
                     "id": "cycle3",
@@ -319,12 +317,12 @@ def test_amalgam_can_search_two_bridge_generators():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "c", "source": 1, "target": 1, "matrix": cycle},
-                {"name": "d", "source": 1, "target": 1, "matrix": flip_12},
-                {"name": "b1", "source": 1, "target": 1, "matrix": flip_12},
-                {"name": "b2", "source": 1, "target": 1, "matrix": flip_01},
-            ],
+            "generators": {
+                "c": {"type": 1, "matrix": cycle},
+                "d": {"type": 1, "matrix": flip_12},
+                "b1": {"type": 1, "matrix": flip_12},
+                "b2": {"type": 1, "matrix": flip_01},
+            },
             "equations": [
                 {"id": "c3", "lhs": composed("c", "c", "c"), "rhs": {"id": 1}},
                 {"id": "d2", "lhs": composed("d", "d"), "rhs": {"id": 1}},
@@ -490,14 +488,14 @@ def test_spin_one_spare_wire_accepts_matrix_equal_aliases(theory: Theory):
     alias = Generator("matrix-only alias", 2, 2, theory.signature["CH"].matrix)
     signature = Signature((*theory.signature.values(), alias))
     right, replaced = _replace_first_generator(
-        expand_macros(lower.rhs, theory.macros),
+        lower.rhs,
         "CH",
         Circuit.generator(alias),
     )
 
     retained = Equation(
         "matrix-equal retained row",
-        expand_macros(lower.lhs, theory.macros),
+        lower.lhs,
         right,
     )
     assert replaced
@@ -512,6 +510,7 @@ def test_spin_one_spare_wire_accepts_matrix_equal_aliases(theory: Theory):
         theory.macros,
         theory.name,
         theory.wire_dimension,
+        theory.source,
     )
 
     _assert_matrix_sound(adversarial, retained)
@@ -571,14 +570,14 @@ def test_spin_rejects_only_matrix_equal_nonidentical_factors(theory: Theory):
     alias = Generator("CH alias", 2, 2, theory.signature["CH"].matrix)
     signature = Signature((*theory.signature.values(), alias))
     right, replaced = _replace_first_generator(
-        expand_macros(original.rhs, theory.macros),
+        original.rhs,
         "CH",
         Circuit.generator(alias),
     )
 
     target = Equation(
         "matrix_only_factor_reversal",
-        expand_macros(original.lhs, theory.macros),
+        original.lhs,
         right,
     )
     assert replaced
@@ -593,6 +592,7 @@ def test_spin_rejects_only_matrix_equal_nonidentical_factors(theory: Theory):
         theory.macros,
         theory.name,
         theory.wire_dimension,
+        theory.source,
     )
 
     _assert_matrix_sound(matrix_only_theory, target)

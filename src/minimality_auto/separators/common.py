@@ -36,9 +36,9 @@ def primitive_names(
         deadline.check()
         for term in (equation.lhs, equation.rhs):
             counts = (
-                context.occurrences_for(term, theory.macros)
+                context.occurrences_for(term)
                 if context is not None
-                else primitive_occurrences(term, theory.macros)
+                else primitive_occurrences(term)
             )
             names.update(counts)
     return sorted(names)
@@ -86,7 +86,6 @@ def numerical_matrix(theory: Any, term: Any, purpose: str) -> np.ndarray:
             evaluate_matrix(
                 term,
                 theory.signature,
-                theory.macros,
                 theory.wire_dimension,
             ),
             dtype=np.complex128,

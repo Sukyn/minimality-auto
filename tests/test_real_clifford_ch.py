@@ -19,12 +19,8 @@ def test_full_real_clifford_ch_theory_is_sound():
     for equation in theory.equations:
         if equation.id.startswith("19_") and equation.lhs.inputs > 6:
             continue
-        left = evaluate_matrix(
-            equation.lhs, theory.signature, theory.macros, theory.wire_dimension
-        )
-        right = evaluate_matrix(
-            equation.rhs, theory.signature, theory.macros, theory.wire_dimension
-        )
+        left = evaluate_matrix(equation.lhs, theory.signature, theory.wire_dimension)
+        right = evaluate_matrix(equation.rhs, theory.signature, theory.wire_dimension)
         np.testing.assert_allclose(left, right, atol=1e-8, rtol=1e-8)
 
 
@@ -46,12 +42,16 @@ def test_shortcut_matrices_match_their_published_semantics():
     theory = load_theory(FULL_PATH)
     cosine, sine = np.cos(np.pi / 8), np.sin(np.pi / 8)
     p = np.array([[cosine, sine], [sine, -cosine]])
-    p_pair = evaluate_matrix(theory.macros["P_pair"], theory.signature, theory.macros)
+    p_pair = evaluate_matrix(
+        theory.macros["P_pair"], theory.signature, theory.wire_dimension
+    )
     np.testing.assert_allclose(p_pair, np.kron(p, p), atol=1e-8, rtol=1e-8)
 
     for wires in range(5, 9):
         actual = evaluate_matrix(
-            theory.macros[f"MCZ_pad_{wires}"], theory.signature, theory.macros
+            theory.macros[f"MCZ_pad_{wires}"],
+            theory.signature,
+            theory.wire_dimension,
         )
         expected = np.eye(2**wires)
         expected[-2, -2] = expected[-1, -1] = -1

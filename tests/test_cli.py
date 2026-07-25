@@ -18,7 +18,7 @@ def _write_theory(path):
         json.dumps(
             {
                 "name": "cli_example",
-                "generators": {"a": [1, 1]},
+                "generators": {"a": 1},
                 "equations": [
                     {"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}
                 ],
@@ -42,7 +42,7 @@ def test_cli_json_output(tmp_path, capsys):
         json.dumps(
             {
                 "name": "cli_json",
-                "generators": {"a": [1, 1]},
+                "generators": {"a": 1},
                 "equations": [
                     {"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}
                 ],
@@ -61,7 +61,7 @@ def test_finite_model_cli_alias_and_degree_bound(tmp_path, capsys, degree_flag):
     path.write_text(
         json.dumps(
             {
-                "generators": {"H": [1, 1], "Z": [1, 1]},
+                "generators": {"H": 1, "Z": 1},
                 "equations": [
                     {
                         "id": "1",

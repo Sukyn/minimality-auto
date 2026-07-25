@@ -4,7 +4,7 @@ from itertools import permutations
 
 import numpy as np
 
-from minimality_auto.core import Circuit, Equation, Signature, Theory
+from minimality_auto.core import Circuit, Equation, Theory
 from minimality_auto.search import Deadline, search_theory
 from minimality_auto.separators import counting, determinant, substitution
 from minimality_auto.separators.common import (
@@ -13,7 +13,7 @@ from minimality_auto.separators.common import (
 )
 
 
-def test_presence_handles_arity_changes_and_inline_primitive_names():
+def test_presence_handles_arity_changes():
     theory = Theory.from_json(
         {
             "generators": {"unused": [4, 0], "unit": [0, 1], "counit": [1, 0]},
@@ -26,28 +26,11 @@ def test_presence_handles_arity_changes_and_inline_primitive_names():
             ],
         }
     )
-    inline_theory = Theory(
-        Signature.from_json({"unused": [4, 0]}),
-        (
-            Equation(
-                "inline",
-                Circuit.generator("ghost", 1, 1),
-                Circuit.identity(1),
-            ),
-        ),
-    )
     loop = search_theory(
         theory, strategies=("presence",), equation_ids={"loop"}, timeout=2
     )
-    inline = search_theory(
-        inline_theory,
-        strategies=("presence",),
-        equation_ids={"inline"},
-        timeout=2,
-    )
 
     assert loop.witnesses["loop"].parameters["generators"] in (["unit"], ["counit"])
-    assert inline.witnesses["inline"].parameters == {"generators": ["ghost"]}
 
 
 def test_counting_disables_swap_sign_when_a_generator_changes_wire_parity():
@@ -100,35 +83,28 @@ def test_counting_swap_sign_supports_parity_preserving_arity_changes():
     assert report.witnesses["swap"].parameters["swap"] == 1
 
 
-def test_wire_parity_check_is_iterative_for_deep_programmatic_terms():
-    theory = Theory.from_json({"generators": {}, "equations": []})
+def test_wire_parity_check_handles_declared_generators():
+    preserving = Theory.from_json(
+        {"generators": {"gate": 1}, "equations": []}
+    )
+    changing = Theory.from_json(
+        {"generators": {"grow": [1, 2]}, "equations": []}
+    )
 
-    def nest(term, depth):
-        for index in range(depth):
-            term = (
-                Circuit.tensor((term, Circuit.identity(0)))
-                if index % 2 == 0
-                else Circuit.compose((term, Circuit.identity(term.outputs)))
-            )
-        return term
-
-    preserving = nest(Circuit.generator("inline", 1, 1), 1_500)
-    changing = nest(Circuit.generator("inline grow", 1, 2), 1_500)
-
-    assert wire_parity_is_preserved(theory, preserving)
-    assert not wire_parity_is_preserved(theory, changing)
+    assert wire_parity_is_preserved(preserving)
+    assert not wire_parity_is_preserved(changing)
 
 
-def test_swap_phase_checks_an_external_target_for_inline_arity_changes():
+def test_swap_phase_checks_an_external_target_for_arity_changes():
     theory = Theory.from_json(
         {
-            "generators": {"gate": [1, 1]},
+            "generators": {"gate": 1, "grow": [1, 2]},
             "equations": [
                 {"id": "gate", "lhs": {"gen": "gate"}, "rhs": {"gen": "gate"}}
             ],
         }
     )
-    grow = Circuit.generator("inline grow", 1, 2)
+    grow = Circuit.generator(theory.signature["grow"])
     target = Equation(
         "external target",
         Circuit.compose((grow, Circuit.perm((1, 0)))),
@@ -164,7 +140,7 @@ def test_determinant_generalizes_to_qutrits_and_scalars():
             "wire_dimension": 3,
             "generators": {
                 "qutrit_phase": {
-                    "type": [1, 1],
+                    "type": 1,
                     "matrix": [[phase, 0, 0], [0, 1, 0], [0, 0, 1]],
                 }
             },
@@ -176,7 +152,7 @@ def test_determinant_generalizes_to_qutrits_and_scalars():
     scalar_theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": {"scalar": {"type": [0, 0], "matrix": [[phase]]}},
+            "generators": {"scalar": {"type": 0, "matrix": [[phase]]}},
             "equations": [
                 {"id": "scalar", "lhs": {"gen": "scalar"}, "rhs": {"id": 0}}
             ],
@@ -199,8 +175,8 @@ def test_determinant_defaults_unsupported_generators_and_preserves_prop_naturali
         {
             "wire_dimension": 2,
             "generators": {
-                "phase": {"type": [1, 1], "matrix": [[phase, 0], [0, 1]]},
-                "singular": {"type": [1, 1], "matrix": [[0, 0], [0, 0]]},
+                "phase": {"type": 1, "matrix": [[phase, 0], [0, 1]]},
+                "singular": {"type": 1, "matrix": [[0, 0], [0, 0]]},
                 "unit": {"type": [0, 1], "matrix": [[1], [0]]},
             },
             "equations": [
@@ -267,8 +243,8 @@ def test_substitution_searches_nullary_scalars():
     theory = Theory.from_json(
         {
             "generators": {
-                "s": {"type": [0, 0], "matrix": [[1]]},
-                "t": {"type": [0, 0], "matrix": [[2]]},
+                "s": {"type": 0, "matrix": [[1]]},
+                "t": {"type": 0, "matrix": [[2]]},
             },
             "equations": [
                 {"id": "target", "lhs": {"gen": "s"}, "rhs": {"id": 0}}
@@ -292,9 +268,9 @@ def test_substitution_ignores_irrelevant_higher_arity_missing_matrices():
     theory = Theory.from_json(
         {
             "generators": {
-                "X": {"type": [1, 1], "matrix": identity},
-                "Z": {"type": [1, 1], "matrix": z},
-                "large_missing": [3, 3],
+                "X": {"type": 1, "matrix": identity},
+                "Z": {"type": 1, "matrix": z},
+                "large_missing": 3,
             },
             "equations": [
                 {
@@ -318,37 +294,11 @@ def test_substitution_ignores_irrelevant_higher_arity_missing_matrices():
     assert report.witnesses["target"].checked_equations == ()
 
 
-def test_substitution_can_override_an_inline_typed_generator():
-    theory = Theory(
-        Signature.from_json(
-            {"Z": {"type": [1, 1], "matrix": [[1, 0], [0, -1]]}}
-        ),
-        (
-            Equation(
-                "target",
-                Circuit.generator("inline", 1, 1),
-                Circuit.identity(1),
-            ),
-        ),
-    )
-    report = search_theory(
-        theory,
-        strategies=("substitution",),
-        equation_ids={"target"},
-        max_depth=1,
-        timeout=2,
-    )
-
-    witness = report.witnesses["target"]
-    assert witness.parameters["generator"] == "inline"
-    assert witness.parameters["replacement"] == "Z@[0]"
-
-
 def test_substitution_word_search_does_not_recurse_with_depth():
     theory = Theory.from_json(
         {
             "generators": {
-                "tick": {"type": [0, 0], "matrix": [[1]]},
+                "tick": {"type": 0, "matrix": [[1]]},
             },
             "equations": [
                 {"id": "target", "lhs": {"gen": "tick"}, "rhs": {"id": 0}}
@@ -391,8 +341,8 @@ def test_substitution_matrix_budget_is_configurable_and_nonfinite_is_rejected():
     theory = Theory.from_json(
         {
             "generators": {
-                "X": {"type": [1, 1], "matrix": [[1, 0], [0, 1]]},
-                "Z": {"type": [1, 1], "matrix": [[1, 0], [0, -1]]},
+                "X": {"type": 1, "matrix": [[1, 0], [0, 1]]},
+                "Z": {"type": 1, "matrix": [[1, 0], [0, -1]]},
             },
             "equations": [
                 {"id": "target", "lhs": {"gen": "X"}, "rhs": {"id": 1}}
@@ -451,16 +401,12 @@ def test_substitution_budget_accounts_for_wires_hidden_inside_macros():
     theory = Theory.from_json(
         {
             "generators": {
-                "X": {"type": [1, 1], "matrix": np.eye(2).tolist()},
+                "X": {"type": 1, "matrix": np.eye(2).tolist()},
                 "split": {"type": [1, 3], "matrix": split.tolist()},
                 "merge": {"type": [3, 1], "matrix": merge.tolist()},
             },
             "macros": {
-                "burst": {
-                    "body": {
-                        "compose": [{"gen": "split"}, {"gen": "merge"}]
-                    }
-                }
+                "burst": {"compose": [{"gen": "split"}, {"gen": "merge"}]}
             },
             "equations": [
                 {"id": "target", "lhs": {"gen": "X"}, "rhs": {"id": 1}}

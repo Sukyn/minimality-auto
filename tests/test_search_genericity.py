@@ -13,7 +13,7 @@ from minimality_auto.separators import counting, determinant, spin
 def _theory() -> Theory:
     return Theory.from_json(
         {
-            "generators": {"g": [1, 1]},
+            "generators": {"g": 1},
             "equations": [
                 {"id": "target", "lhs": {"gen": "g"}, "rhs": {"id": 1}}
             ],

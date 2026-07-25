@@ -104,11 +104,11 @@ def candidates(
 
     def evaluate(term: Any) -> float:
         if context is None:
-            counts = primitive_occurrences(term, theory.macros)
-            parity = structural_permutation_parity(term, theory.macros)
+            counts = primitive_occurrences(term)
+            parity = structural_permutation_parity(term)
         else:
-            counts = context.occurrences_for(term, theory.macros)
-            parity = context.parity_for(term, theory.macros)
+            counts = context.occurrences_for(term)
+            parity = context.parity_for(term)
         value = sum(counts[name] * phase for name, phase in weights.items())
         value += parity * epsilon
         return value % math.tau
@@ -125,7 +125,6 @@ def candidates(
         if abs(value) > 1e-10
     }
     yield CandidateModel(
-        kind="determinant",
         description=(
             f"numerical scaled determinant phase (dimension={dimension}, k={k})"
         ),

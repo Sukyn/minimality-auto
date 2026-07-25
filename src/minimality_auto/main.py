@@ -166,7 +166,8 @@ def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
     process.start()
     sender.close()
     try:
-        if receiver.poll(timeout):
+        remaining = max(0.0, timeout - (time.monotonic() - start))
+        if receiver.poll(remaining):
             try:
                 succeeded, value = receiver.recv()
             except EOFError as exc:

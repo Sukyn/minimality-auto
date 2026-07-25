@@ -10,8 +10,8 @@ import numpy as np
 
 from ..core import (
     Circuit,
-    ValidationError,
     _wire_size_matches,
+    analyze_circuit,
     primitive_occurrences,
 )
 from ..matrix import evaluate_matrix
@@ -37,54 +37,6 @@ def _fingerprint(matrix: np.ndarray) -> bytes:
 
 def _arity(item: Any) -> tuple[int, int]:
     return int(item.inputs), int(item.outputs)
-
-
-def _generator_catalog(
-    theory: Any,
-    equations: list[Any],
-) -> list[Any]:
-    """Return consistently typed primitives, including inline generators.
-
-    ``Circuit.from_json`` permits an explicitly typed generator which is not
-    declared in the top-level signature.  Matrix evaluation can still assign
-    such a primitive through an override, so it is a legitimate substitution
-    target.  A name used at two different types cannot receive one matrix and
-    is therefore omitted conservatively.
-    """
-    catalog = dict(theory.signature.items())
-    conflicts: set[str] = set()
-    visited_macros: set[str] = set()
-
-    def visit(term: Circuit, active: list[str]) -> None:
-        if term.kind == "gen":
-            name = term.name or ""
-            existing = catalog.get(name)
-            if existing is None:
-                catalog[name] = term
-            elif _arity(existing) != term.type:
-                conflicts.add(name)
-            return
-        if term.kind == "macro":
-            name = term.name or ""
-            if name in active or name not in theory.macros:
-                raise ValidationError(f"invalid recursive macro {name!r}")
-            body = theory.macros[name]
-            if body.type != term.type:
-                raise ValidationError(f"macro {name!r} has inconsistent type")
-            if name in visited_macros:
-                return
-            active.append(name)
-            visit(body, active)
-            active.pop()
-            visited_macros.add(name)
-            return
-        for part in term.parts:
-            visit(part, active)
-
-    for equation in equations:
-        visit(equation.lhs, [])
-        visit(equation.rhs, [])
-    return [catalog[name] for name in sorted(catalog) if name not in conflicts]
 
 
 def _placements(
@@ -139,32 +91,6 @@ def _matrix_budget_allows(
     return wires <= limit.bit_length() and wire_dimension**wires <= limit
 
 
-def _maximum_wires(
-    term: Circuit,
-    macros: Any,
-    cache: dict[str, int],
-    active: list[str],
-) -> int:
-    if term.kind == "macro":
-        name = term.name or ""
-        if name in active or name not in macros:
-            raise ValidationError(f"invalid recursive macro {name!r}")
-        body = macros[name]
-        if body.type != term.type:
-            raise ValidationError(f"macro {name!r} has inconsistent type")
-        if name in cache:
-            return cache[name]
-        active.append(name)
-        cache[name] = _maximum_wires(body, macros, cache, active)
-        active.pop()
-        return cache[name]
-    return max(
-        term.inputs,
-        term.outputs,
-        *(_maximum_wires(part, macros, cache, active) for part in term.parts),
-    )
-
-
 def _replacement_terms(
     theory: Any,
     inputs: int,
@@ -176,10 +102,7 @@ def _replacement_terms(
 ) -> Iterator[tuple[Any, str]]:
     if depth == 0:
         if inputs == outputs:
-            yield (
-                Circuit.from_json({"id": inputs}, theory.signature, theory.macros),
-                f"id_{inputs}",
-            )
+            yield Circuit.identity(inputs), f"id_{inputs}"
         return
 
     wire_dimension = int(theory.wire_dimension)
@@ -262,9 +185,9 @@ def candidates(
     if wire_dimension < 1:
         raise NotApplicable("wire dimension must be positive")
     checked = [*retained_equations(theory, target, context), target]
-    generators = _generator_catalog(theory, checked)
+    generators = sorted(theory.signature.values(), key=lambda item: item.name)
     if not generators:
-        raise NotApplicable("the checked theory has no consistently typed generators")
+        raise NotApplicable("the theory has no generators")
 
     usable: set[str] = set()
     for generator in generators:
@@ -293,18 +216,15 @@ def candidates(
         )
         if generator.name in usable_generators
     ]
-    macro_wire_counts: dict[str, int] = {}
     for name, body in sorted(theory.macros.items()):
         deadline.check()
-        macro_wire_counts[name] = _maximum_wires(
-            body, theory.macros, macro_wire_counts, [name]
-        )
+        maximum_wires = analyze_circuit(body).maximum_wires
         if (
-            set(primitive_occurrences(body, theory.macros))
+            set(primitive_occurrences(body))
             <= usable_generators
             and _matrix_budget_allows(
                 wire_dimension,
-                macro_wire_counts[name],
+                maximum_wires,
                 max_substitution_matrix_entries,
             )
         ):
@@ -317,16 +237,16 @@ def candidates(
         if any(
             not _matrix_budget_allows(
                 wire_dimension,
-                _maximum_wires(term, theory.macros, macro_wire_counts, []),
+                analyze_circuit(term).maximum_wires,
                 max_substitution_matrix_entries,
             )
             for term in (equation.lhs, equation.rhs)
         ):
             return
-        required.update(primitive_occurrences(equation.lhs, theory.macros))
-        required.update(primitive_occurrences(equation.rhs, theory.macros))
-    target_names = set(primitive_occurrences(target.lhs, theory.macros))
-    target_names.update(primitive_occurrences(target.rhs, theory.macros))
+        required.update(primitive_occurrences(equation.lhs))
+        required.update(primitive_occurrences(equation.rhs))
+    target_names = set(primitive_occurrences(target.lhs))
+    target_names.update(primitive_occurrences(target.rhs))
 
     for generator in generators:
         source, target_arity = _arity(generator)
@@ -356,7 +276,6 @@ def candidates(
                 replacement_matrix = evaluate_matrix(
                     replacement,
                     theory.signature,
-                    theory.macros,
                     wire_dimension,
                 )
             except (TypeError, ValueError, OverflowError):
@@ -377,13 +296,11 @@ def candidates(
                 return evaluate_matrix(
                     term,
                     theory.signature,
-                    theory.macros,
                     wire_dimension,
                     overrides=override,
                 )
 
             yield CandidateModel(
-                kind="substitution",
                 description=(
                     f"numerical projective substitution "
                     f"{generator.name} := {label}"

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from ..core import Circuit, expand_macros, iter_circuit_nodes, iter_theory_terms
+from ..core import Circuit
 from ..search import Deadline, NotApplicable
+from .common import retained_equations
 
 Token = tuple[str, str | int]
 Word = tuple[Token, ...]
@@ -128,25 +129,6 @@ def compile_word(
     raise NotApplicable(f"unsupported circuit node {node.kind!r}")
 
 
-def theory_word_compiler(
-    macros: Mapping[str, Circuit],
-    signature: Mapping[str, int],
-    total: int,
-    deadline: Deadline,
-) -> Callable[[Circuit], Word]:
-    """Bind the common theory data for compiling several terms."""
-
-    def compile_term(node: Circuit) -> Word:
-        return compile_word(
-            expand_macros(node, macros),
-            signature,
-            total,
-            deadline=deadline,
-        )
-
-    return compile_term
-
-
 @dataclass(frozen=True)
 class Constraint:
     left: Word
@@ -156,6 +138,49 @@ class Constraint:
     @cached_property
     def variables(self) -> frozenset[Token]:
         return frozenset((*self.left, *self.right))
+
+
+@dataclass(frozen=True)
+class Presentation:
+    """A theory compiled into one fixed ambient arity."""
+
+    arity: int
+    signature: dict[str, int]
+    retained: tuple[Constraint, ...]
+    prop: tuple[Constraint, ...]
+    target_pair: tuple[Word, Word]
+    generator_specs: tuple[tuple[str, int], ...]
+    variables: tuple[Token, ...]
+
+    @cached_property
+    def active_names(self) -> frozenset[str]:
+        return frozenset(name for name, _ in self.generator_specs)
+
+    @cached_property
+    def target_generators(self) -> frozenset[Token]:
+        return frozenset(
+            token
+            for word in self.target_pair
+            for token in word
+            if token[0] == "generator"
+        )
+
+    @cached_property
+    def required_constraints(self) -> tuple[Constraint, ...]:
+        return (*self.retained, *self.prop)
+
+    @cached_property
+    def separation_constraints(self) -> tuple[Constraint, ...]:
+        retained = tuple(
+            constraint
+            for constraint in self.retained
+            if constraint.left != constraint.right
+        )
+        return (
+            *self.prop,
+            *retained,
+            Constraint(*self.target_pair, equal=False),
+        )
 
 
 def prop_constraints(
@@ -228,29 +253,62 @@ def display_name(token: Token) -> str:
     return f"swap[{index},{index + 1}]"
 
 
-def _register_inline_generators(
-    term: Circuit,
-    signature: dict[str, int],
+def compile_presentation(
+    theory: Any,
+    target: Any,
     deadline: Deadline,
-) -> None:
-    for node in iter_circuit_nodes(term, deadline.check):
-        if node.kind == "gen":
-            name = node.name or ""
-            width = int(node.inputs)
-            existing = signature.get(name)
-            if existing is not None and existing != width:
-                raise NotApplicable(
-                    f"generator {name!r} is used at inconsistent arities"
-                )
-            signature[name] = width
+    context: Any = None,
+) -> Presentation:
+    """Compile the retained theory and target once for fixed-arity searches."""
 
-
-def generator_arities(theory: Any, target: Any, deadline: Deadline) -> dict[str, int]:
-    """Return declared and explicitly typed inline generator arities."""
-
+    arity = target.arity
+    if arity < 0:
+        raise NotApplicable("fixed-arity search requires a non-negative arity")
     signature = {
-        name: generator.inputs for name, generator in theory.signature.items()
+        name: spec.inputs
+        for name, spec in theory.signature.items()
+        if spec.inputs <= arity
     }
-    for term in iter_theory_terms(theory, target.lhs, target.rhs):
-        _register_inline_generators(term, signature, deadline)
-    return signature
+
+    def compile_term(term: Circuit) -> Word:
+        return compile_word(
+            term,
+            signature,
+            arity,
+            deadline=deadline,
+        )
+
+    retained = tuple(
+        Constraint(compile_term(equation.lhs), compile_term(equation.rhs))
+        for equation in retained_equations(theory, target, context)
+    )
+    target_pair = compile_term(target.lhs), compile_term(target.rhs)
+    used = frozenset(
+        token
+        for constraint in retained
+        for word in (constraint.left, constraint.right)
+        for token in word
+        if token[0] == "generator"
+    ) | frozenset(
+        token
+        for word in target_pair
+        for token in word
+        if token[0] == "generator"
+    )
+    generator_specs = tuple(
+        (name, width)
+        for name, width in signature.items()
+        if generator(name) in used
+    )
+    return Presentation(
+        arity=arity,
+        signature=signature,
+        retained=retained,
+        prop=prop_constraints(arity, generator_specs, deadline),
+        target_pair=target_pair,
+        generator_specs=generator_specs,
+        variables=(
+            *(generator(name) for name, _ in generator_specs),
+            *(swap(index) for index in range(arity - 1)),
+        ),
+    )

@@ -7,7 +7,7 @@ import pytest
 
 from minimality_auto.core import Circuit, Equation, Generator, Signature, Theory
 from minimality_auto.search import Deadline, NotApplicable, SearchTimeout
-from minimality_auto.separators import amalgam, spin
+from minimality_auto.separators import amalgam, fixed_arity, spin
 from minimality_auto.separators.finite_field import (
     MatrixGroup,
     identity,
@@ -160,11 +160,11 @@ def test_amalgam_bridge_search_includes_retained_only_generators():
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {"name": "target left", "source": 1, "target": 1, "matrix": flip},
-                {"name": "target right", "source": 1, "target": 1, "matrix": flip},
-                {"name": "retained only", "source": 1, "target": 1, "matrix": flip},
-            ],
+            "generators": {
+                "target left": {"type": 1, "matrix": flip},
+                "target right": {"type": 1, "matrix": flip},
+                "retained only": {"type": 1, "matrix": flip},
+            },
             "equations": [
                 {
                     "id": "retained involution",
@@ -184,23 +184,21 @@ def test_amalgam_bridge_search_includes_retained_only_generators():
             ],
         }
     )
-    relations, _, target_words = amalgam._relations(
+    presentation = fixed_arity.compile_presentation(
         theory,
         theory.equation("arbitrary target"),
-        1,
-        dict.fromkeys(theory.signature, 1),
         Deadline.after(2),
     )
     active = {
         token[1]
-        for relation in relations
+        for relation in presentation.retained
         for word in (relation.left, relation.right)
         for token in word
         if token[0] == "generator"
     }
     active.update(
         token[1]
-        for word in target_words
+        for word in presentation.target_pair
         for token in word
         if token[0] == "generator"
     )
@@ -212,20 +210,16 @@ def test_amalgam_candidate_evaluator_respects_prop_contexts():
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {
-                    "name": "horizontal flip",
-                    "source": 1,
-                    "target": 1,
+            "generators": {
+                "horizontal flip": {
+                    "type": 1,
                     "matrix": [[0, 1], [1, 0]],
                 },
-                {
-                    "name": "vertical sign",
-                    "source": 1,
-                    "target": 1,
+                "vertical sign": {
+                    "type": 1,
                     "matrix": [[1, 0], [0, -1]],
                 },
-            ],
+            },
             "equations": [
                 {
                     "id": "flip square",
@@ -288,26 +282,23 @@ def test_amalgam_candidate_evaluator_respects_prop_contexts():
 def test_spin_rejects_invalid_retained_only_primitive():
     reflection = ((-1, 0), (0, 1))
     nonreflection = ((1, 0), (0, 2))
+    left = Generator("left", 1, 1, reflection)
+    bad = Generator("bad", 1, 1, nonreflection)
     target_left = Circuit.tensor(
         (
-            Circuit.generator("left", 1, 1),
+            Circuit.generator(left),
             Circuit.identity(4),
         )
     )
     target_right = Circuit.identity(5)
     retained = Equation(
         "retained invalid primitive",
-        Circuit.generator("bad", 1, 1),
-        Circuit.generator("bad", 1, 1),
+        Circuit.generator(bad),
+        Circuit.generator(bad),
     )
     target = Equation("arbitrary spin target", target_left, target_right)
     theory = Theory(
-        Signature(
-            (
-                Generator("left", 1, 1, reflection),
-                Generator("bad", 1, 1, nonreflection),
-            )
-        ),
+        Signature((left, bad)),
         (retained, target),
         wire_dimension=2,
     )
@@ -343,12 +334,13 @@ def test_spin_reflection_check_rejects_complex_and_nearly_rank_one_values():
 def test_finite_field_templates_reject_malformed_programmatic_matrices_cleanly(
     matrix, message
 ):
+    malformed = Generator("malformed", 1, 1, matrix)
     theory = Theory(
-        Signature((Generator("malformed", 1, 1, matrix),)),
+        Signature((malformed,)),
         (
             Equation(
                 "target",
-                Circuit.generator("malformed", 1, 1),
+                Circuit.generator(malformed),
                 Circuit.identity(1),
             ),
         ),

@@ -14,10 +14,10 @@ from itertools import combinations, product
 from math import isqrt
 from typing import Any
 
-from ..core import Circuit, expand_macros
+from ..core import Circuit
 from ..search import CandidateModel, Deadline, NotApplicable
 from . import finite_field, fixed_arity
-from .common import require_endomorphic_theory, retained_equations
+from .common import require_endomorphic_theory
 from .fixed_arity import Token, Word
 
 MAX_MATRIX_DIMENSION = 32
@@ -32,52 +32,6 @@ def _bounded_power(base: int, exponent: int, limit: int) -> int | None:
             return None
         result *= base
     return result
-
-
-def _relations(
-    theory: Any,
-    target: Any,
-    arity: int,
-    signature: Mapping[str, int],
-    deadline: Deadline,
-    context: Any = None,
-) -> tuple[
-    tuple[fixed_arity.Constraint, ...],
-    tuple[fixed_arity.Constraint, ...],
-    tuple[Word, Word],
-]:
-    compile_term = fixed_arity.theory_word_compiler(
-        theory.macros, signature, arity, deadline
-    )
-
-    equations = [
-        fixed_arity.Constraint(
-            compile_term(equation.lhs),
-            compile_term(equation.rhs),
-        )
-        for equation in retained_equations(theory, target, context)
-    ]
-    target_words = compile_term(target.lhs), compile_term(target.rhs)
-    used = {
-        token
-        for relation in equations
-        for word in (relation.left, relation.right)
-        for token in word
-        if token[0] == "generator"
-    }
-    used.update(
-        token
-        for word in target_words
-        for token in word
-        if token[0] == "generator"
-    )
-    generators = tuple(
-        (name, width)
-        for name, width in signature.items()
-        if fixed_arity.generator(name) in used
-    )
-    prop = fixed_arity.prop_constraints(arity, generators, deadline)
-    return tuple(equations), prop, target_words
 
 
 def _word_matrix(
@@ -338,11 +292,7 @@ def _rows(matrix: finite_field.Mat, size: int) -> list[list[int]]:
 
 def _candidate(
     theory: Any,
-    arity: int,
-    signature: Mapping[str, int],
-    relations: Sequence[fixed_arity.Constraint],
-    prop: Sequence[fixed_arity.Constraint],
-    target_words: tuple[Word, Word],
+    presentation: fixed_arity.Presentation,
     atoms: Mapping[Token, finite_field.Mat],
     native: Mapping[str, finite_field.Mat],
     bridges: frozenset[Token],
@@ -352,6 +302,9 @@ def _candidate(
     max_order: int,
     deadline: Deadline,
 ) -> CandidateModel | None:
+    arity = presentation.arity
+    signature = presentation.signature
+    target_words = presentation.target_pair
     size = theory.wire_dimension**arity
     base_atom_tokens = tuple(sorted(set(atoms) - bridges))
     bridge_tokens = tuple(sorted(bridges))
@@ -365,7 +318,7 @@ def _candidate(
     quotient_tokens = {token: quotient.element(atoms[token]) for token in bridge_tokens}
 
     seeds: list[int] = []
-    for relation in (*relations, *prop):
+    for relation in presentation.required_constraints:
         left, right = _cancel(relation.left, relation.right, deadline)
         if not (bridges & {*left, *right}):
             continue
@@ -405,7 +358,7 @@ def _candidate(
     if any(
         amalgam.evaluate_word(relation.left, deadline)
         != amalgam.evaluate_word(relation.right, deadline)
-        for relation in (*relations, *prop)
+        for relation in presentation.required_constraints
     ):
         raise finite_field.Reject(
             "a retained equation fails after amalgam normalization"
@@ -416,14 +369,13 @@ def _candidate(
         return None
 
     def evaluate(term: Circuit) -> tuple[Any, ...]:
-        expanded = expand_macros(term, theory.macros)
-        if expanded.inputs != expanded.outputs or expanded.inputs > arity:
+        if term.inputs != term.outputs or term.inputs > arity:
             raise NotApplicable(
                 f"amalgam interpretation supports endomorphisms through arity {arity}"
             )
         return amalgam.evaluate_word(
             fixed_arity.compile_word(
-                expanded,
+                term,
                 signature,
                 arity,
                 deadline=deadline,
@@ -457,7 +409,6 @@ def _candidate(
         return f"x{index}~{rendered}"
 
     return CandidateModel(
-        kind="amalgam",
         description=(
             f"discovered F_{prime} amalgam with bridge "
             f"{{{', '.join(bridge_names)}}}: "
@@ -542,44 +493,24 @@ def candidates(
         raise NotApplicable(
             f"amalgam matrix dimension exceeds {max_amalgam_matrix_dimension}"
         )
-    signature = {
-        name: width
-        for name, width in fixed_arity.generator_arities(
-            theory, target, deadline
-        ).items()
-        if width <= arity
-    }
-    relations, prop, target_words = _relations(
-        theory, target, arity, signature, deadline, context
-    )
-    active = frozenset(
-        str(token[1])
-        for relation in relations
-        for word in (relation.left, relation.right)
-        for token in word
-        if token[0] == "generator"
-    ) | frozenset(
-        str(token[1])
-        for word in target_words
-        for token in word
-        if token[0] == "generator"
+    presentation = fixed_arity.compile_presentation(
+        theory,
+        target,
+        deadline,
+        context,
     )
     templates = finite_field.templates(
         theory,
-        signature,
-        active,
+        presentation.signature,
+        presentation.active_names,
         max_amalgam_scalars,
         deadline,
     )
-    target_generators = {
-        token for word in target_words for token in word if token[0] == "generator"
-    }
-    active_generators = {fixed_arity.generator(name) for name in active}
     ordered = sorted(
-        active_generators,
+        (fixed_arity.generator(name) for name in presentation.active_names),
         key=lambda token: (
-            token not in target_generators,
-            signature[str(token[1])] != arity,
+            token not in presentation.target_generators,
+            presentation.signature[str(token[1])] != arity,
             str(token[1]),
         ),
     )
@@ -592,7 +523,7 @@ def candidates(
             try:
                 atoms, native = finite_field.instantiate(
                     templates,
-                    signature,
+                    presentation.signature,
                     assignment,
                     arity,
                     theory.wire_dimension,
@@ -601,7 +532,7 @@ def candidates(
                 if any(
                     _word_matrix(relation.left, atoms, size, prime, deadline)
                     != _word_matrix(relation.right, atoms, size, prime, deadline)
-                    for relation in (*relations, *prop)
+                    for relation in presentation.required_constraints
                 ):
                     continue
                 for bridges in _bridge_subsets(
@@ -611,11 +542,7 @@ def candidates(
                     try:
                         model = _candidate(
                             theory,
-                            arity,
-                            signature,
-                            relations,
-                            prop,
-                            target_words,
+                            presentation,
                             atoms,
                             native,
                             bridges,

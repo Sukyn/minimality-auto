@@ -7,6 +7,8 @@ import pytest
 
 from minimality_auto.core import (
     Circuit,
+    iter_circuit_nodes,
+    iter_theory_terms,
     load_theory,
     primitive_occurrences,
 )
@@ -62,8 +64,13 @@ def test_rule_inventory_and_shortcuts_are_explicit():
         "CX_inv",
     }
     for equation in theory.equations:
-        assert set(primitive_occurrences(equation.lhs, theory.macros)) <= set(theory.signature)
-        assert set(primitive_occurrences(equation.rhs, theory.macros)) <= set(theory.signature)
+        assert set(primitive_occurrences(equation.lhs)) <= set(theory.signature)
+        assert set(primitive_occurrences(equation.rhs)) <= set(theory.signature)
+    assert all(
+        node.kind != "macro"
+        for term in iter_theory_terms(theory)
+        for node in iter_circuit_nodes(term)
+    )
 
 
 @pytest.mark.parametrize("theory_path", ALL_THEORY_PATHS, ids=lambda path: path.stem)
@@ -72,10 +79,10 @@ def test_every_retained_equation_is_sound(theory_path: Path):
     failures = []
     for equation in theory.equations:
         lhs = evaluate_matrix(
-            equation.lhs, theory.signature, theory.macros, theory.wire_dimension
+            equation.lhs, theory.signature, theory.wire_dimension
         )
         rhs = evaluate_matrix(
-            equation.rhs, theory.signature, theory.macros, theory.wire_dimension
+            equation.rhs, theory.signature, theory.wire_dimension
         )
         if not np.allclose(lhs, rhs, atol=1e-8, rtol=1e-8):
             failures.append(
@@ -90,7 +97,7 @@ def test_derived_gate_orientations_match_the_diagrams(theory_path: Path):
     d = theory.wire_dimension
     for name, factor in MULTIPLIERS[d].items():
         multiplier = evaluate_matrix(
-            theory.macros[name], theory.signature, theory.macros, d
+            theory.macros[name], theory.signature, d
         )
         expected_multiplier = np.zeros((d, d), dtype=np.complex128)
         for value in range(d):
@@ -99,7 +106,7 @@ def test_derived_gate_orientations_match_the_diagrams(theory_path: Path):
             multiplier, expected_multiplier, atol=1e-8, rtol=1e-8
         )
 
-    cx = evaluate_matrix(theory.macros["CX"], theory.signature, theory.macros, d)
+    cx = evaluate_matrix(theory.macros["CX"], theory.signature, d)
     expected_cx = np.zeros((d * d, d * d), dtype=np.complex128)
     for target in range(d):
         for control in range(d):
@@ -113,7 +120,7 @@ def test_derived_gate_orientations_match_the_diagrams(theory_path: Path):
 def test_swap_decomposition_has_the_lambda_squared_phase(theory_path: Path):
     theory = load_theory(theory_path)
     equation = theory.equation("SWAP-decomp")
-    counts = primitive_occurrences(equation.rhs, theory.macros)
+    counts = primitive_occurrences(equation.rhs)
 
     assert equation.lhs == Circuit.perm((1, 0))
     assert counts["H"] == 6

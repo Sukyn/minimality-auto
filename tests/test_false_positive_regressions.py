@@ -15,8 +15,8 @@ def _assert_matrix_sound(theory: Theory) -> None:
     semantics = MatrixSemantics(theory.signature, theory.wire_dimension)
     for equation in theory.equations:
         np.testing.assert_allclose(
-            semantics.evaluate(equation.lhs, theory.macros),
-            semantics.evaluate(equation.rhs, theory.macros),
+            semantics.evaluate(equation.lhs),
+            semantics.evaluate(equation.rhs),
             atol=1e-10,
         )
 
@@ -29,8 +29,8 @@ def _rectangular_prop_laws() -> Theory:
             "generators": {
                 "copy": {"type": [1, 2], "matrix": copy},
                 "merge": {"type": [2, 1], "matrix": merge},
-                "x": {"type": [1, 1], "matrix": [[0, 1], [1, 0]]},
-                "z": {"type": [1, 1], "matrix": [[1, 0], [0, -1]]},
+                "x": {"type": 1, "matrix": [[0, 1], [1, 0]]},
+                "z": {"type": 1, "matrix": [[1, 0], [0, -1]]},
             },
             "equations": [
                 {
@@ -93,8 +93,8 @@ def _contextual_consequence() -> Theory:
     return Theory.from_json(
         {
             "generators": {
-                "a": {"type": [1, 1], "matrix": [[0, 1], [1, 0]]},
-                "b": {"type": [1, 1], "matrix": [[1, 0], [0, -1]]},
+                "a": {"type": 1, "matrix": [[0, 1], [1, 0]]},
+                "b": {"type": 1, "matrix": [[1, 0], [0, -1]]},
             },
             "equations": [
                 {
@@ -121,8 +121,8 @@ def _endomorphic_prop_laws() -> Theory:
     return Theory.from_json(
         {
             "generators": {
-                "a": {"type": [1, 1], "matrix": [[0, 1], [1, 0]]},
-                "b": {"type": [1, 1], "matrix": [[1, 0], [0, -1]]},
+                "a": {"type": 1, "matrix": [[0, 1], [1, 0]]},
+                "b": {"type": 1, "matrix": [[1, 0], [0, -1]]},
             },
             "equations": [
                 {
@@ -243,7 +243,7 @@ def test_cli_rejects_an_ill_typed_equation_before_search(tmp_path, capsys):
     path.write_text(
         json.dumps(
             {
-                "generators": {"gate": [1, 1]},
+                "generators": {"gate": 1},
                 "equations": [
                     {
                         "id": "bad",

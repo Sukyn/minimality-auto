@@ -9,12 +9,11 @@ import numpy as np
 
 from ..core import (
     Circuit,
-    expand_macros,
     primitive_occurrences,
 )
 from ..search import (
     Deadline,
-    DirectCertificate,
+    DirectEvidence,
     NotApplicable,
 )
 from .common import numerical_matrix, require_endomorphic_theory, retained_equations
@@ -49,8 +48,15 @@ def _matrix(theory: Any, term: Circuit) -> np.ndarray:
 
 
 def _parts(term: Circuit) -> tuple[Circuit, ...]:
-    parts = term.parts if term.kind == "compose" else (term,)
-    return tuple(part for part in parts if part.kind != "id")
+    result: list[Circuit] = []
+    pending = [term]
+    while pending:
+        part = pending.pop()
+        if part.kind == "compose":
+            pending.extend(reversed(part.parts))
+        elif part.kind != "id":
+            result.append(part)
+    return tuple(result)
 
 
 def _check_reflection(name: str, value: np.ndarray, width: int) -> None:
@@ -100,10 +106,10 @@ def _reflection_generators(
     return tuple(generators)
 
 
-def _active_generators(theory: Any, terms: Sequence[Circuit]) -> frozenset[str]:
+def _active_generators(terms: Sequence[Circuit]) -> frozenset[str]:
     names: set[str] = set()
     for term in terms:
-        names.update(primitive_occurrences(term, theory.macros))
+        names.update(primitive_occurrences(term))
     return frozenset(names)
 
 
@@ -147,15 +153,14 @@ def _commutator_sign(data: tuple[int, int, int]) -> int:
 
 
 def _find_cyclic_reversal_lifts(
-    theory: Any,
     equation: Any,
     deadline: Deadline,
     matrix: Callable[[Circuit], np.ndarray],
     *,
     required_sign: int,
 ) -> tuple[int, int, int] | None:
-    left_parts = _parts(expand_macros(equation.lhs, theory.macros))
-    right_parts = _parts(expand_macros(equation.rhs, theory.macros))
+    left_parts = _parts(equation.lhs)
+    right_parts = _parts(equation.rhs)
 
     for index in range(1, len(left_parts)):
         deadline.check()
@@ -179,7 +184,7 @@ def candidates(
     deadline: Deadline,
     max_spin_matrix_dimension: int = MAX_DENSE_DIMENSION,
     context: Any = None,
-) -> Iterator[DirectCertificate]:
+) -> Iterator[DirectEvidence]:
     if bound != 0:
         return
     if (
@@ -203,7 +208,6 @@ def candidates(
 
     retained = retained_equations(theory, target, context)
     active = _active_generators(
-        theory,
         (
             target.lhs,
             target.rhs,
@@ -268,7 +272,6 @@ def candidates(
                 )
         else:
             data = _find_cyclic_reversal_lifts(
-                theory,
                 equation,
                 deadline,
                 matrix,
@@ -289,7 +292,6 @@ def candidates(
             )
 
     data = _find_cyclic_reversal_lifts(
-        theory,
         target,
         deadline,
         matrix,
@@ -308,7 +310,7 @@ def candidates(
             "reversal(s) have sign +1"
         )
 
-    yield DirectCertificate(
+    yield DirectEvidence(
         description=description,
         parameters={
             "arity": arity,

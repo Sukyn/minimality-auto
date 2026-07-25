@@ -24,14 +24,12 @@ def test_finite_field_templates_accept_complex_patterns():
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {
-                    "name": "phase gate",
-                    "source": 1,
-                    "target": 1,
+            "generators": {
+                "phase gate": {
+                    "type": 1,
                     "matrix": [[0, "i"], ["-i", 0]],
                 }
-            ],
+            },
             "equations": [
                 {
                     "id": "arbitrary target id",
@@ -54,10 +52,10 @@ def test_amalgam_supports_zero_wire_scalars_and_scalar_naturality():
     theory = Theory.from_json(
         {
             "wire_dimension": 1,
-            "generators": [
-                {"name": "left scalar", "source": 0, "target": 0, "matrix": [[-1]]},
-                {"name": "right scalar", "source": 0, "target": 0, "matrix": [[-1]]},
-            ],
+            "generators": {
+                "left scalar": {"type": 0, "matrix": [[-1]]},
+                "right scalar": {"type": 0, "matrix": [[-1]]},
+            },
             "equations": [
                 {
                     "id": "left square",
@@ -92,49 +90,14 @@ def test_amalgam_supports_zero_wire_scalars_and_scalar_naturality():
     assert witness.parameters["structural_swaps"] == {}
 
 
-def test_amalgam_supports_explicitly_typed_inline_generators():
-    theory = Theory(
-        Signature.from_json(
-            {
-                "declared": {
-                    "type": [1, 1],
-                    "matrix": [[0, 1], [1, 0]],
-                }
-            }
-        ),
-        (
-            Equation(
-                "inline target",
-                Circuit.generator("inline", 1, 1),
-                Circuit.generator("declared", 1, 1),
-            ),
-        ),
-    )
-
-    model = next(
-        amalgam.candidates(
-            theory,
-            theory.equation("inline target"),
-            bound=1,
-            deadline=Deadline.after(2),
-            max_amalgam_prime=2,
-            max_amalgam_order=16,
-        )
-    )
-
-    target = theory.equation("inline target")
-    assert "inline" in model.parameters["interpretation"]
-    assert model.evaluate(target.lhs) != model.evaluate(target.rhs)
-
-
 def test_amalgam_matrix_bound_does_not_impose_an_unrelated_arity_bound():
     theory = Theory.from_json(
         {
             "wire_dimension": 1,
-            "generators": [
-                {"name": "left", "source": 3, "target": 3, "matrix": [[-1]]},
-                {"name": "right", "source": 3, "target": 3, "matrix": [[-1]]},
-            ],
+            "generators": {
+                "left": {"type": 3, "matrix": [[-1]]},
+                "right": {"type": 3, "matrix": [[-1]]},
+            },
             "equations": [
                 {
                     "id": "left square",
@@ -171,20 +134,16 @@ def test_amalgam_cannot_separate_prop_interchange():
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {
-                    "name": "first",
-                    "source": 1,
-                    "target": 1,
+            "generators": {
+                "first": {
+                    "type": 1,
                     "matrix": [[0, 1], [1, 0]],
                 },
-                {
-                    "name": "second",
-                    "source": 1,
-                    "target": 1,
+                "second": {
+                    "type": 1,
                     "matrix": [[1, 0], [0, -1]],
                 },
-            ],
+            },
             "equations": [
                 {
                     "id": "PROP interchange",
@@ -220,18 +179,17 @@ def test_amalgam_cannot_separate_prop_interchange():
 
 
 @pytest.mark.parametrize("separator", [amalgam.candidates, spin.candidates])
-def test_fixed_arity_exotic_searches_reject_hidden_arity_changes(separator):
+def test_fixed_arity_exotic_searches_reject_arity_changing_signatures(separator):
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {
-                    "name": "turn",
-                    "source": 1,
-                    "target": 1,
+            "generators": {
+                "turn": {
+                    "type": 1,
                     "matrix": [[0, 1], [1, 0]],
-                }
-            ],
+                },
+                "fresh": [0, 1],
+            },
             "equations": [
                 {
                     "id": "turn square",
@@ -241,9 +199,8 @@ def test_fixed_arity_exotic_searches_reject_hidden_arity_changes(separator):
             ],
         }
     )
-    theory.macros["hidden grow"] = Circuit.generator("fresh", 0, 1)
 
-    with pytest.raises(NotApplicable, match="terms and macros"):
+    with pytest.raises(NotApplicable, match="endomorphic"):
         list(
             separator(
                 theory,
@@ -254,18 +211,15 @@ def test_fixed_arity_exotic_searches_reject_hidden_arity_changes(separator):
         )
 
 
-def _macro_wrapped_spin_theory() -> Theory:
+def _generic_spin_theory() -> Theory:
     original = load_theory(THEORY_PATH)
     target = original.equation("19_n5")
-    macros = dict(original.macros)
-    macros["arbitrary left wrapper"] = target.lhs
     right_parts = list(target.rhs.parts)
     right_parts.insert(1, Circuit.identity(5))
-    macros["arbitrary right wrapper"] = Circuit.compose(right_parts)
     wrapped = Equation(
         "unrelated target name",
-        Circuit.macro("arbitrary left wrapper", 5, 5),
-        Circuit.macro("arbitrary right wrapper", 5, 5),
+        target.lhs,
+        Circuit.compose(right_parts),
     )
     unused_matrix = tuple(
         tuple(1 if row == column else 0 for column in range(8))
@@ -283,14 +237,13 @@ def _macro_wrapped_spin_theory() -> Theory:
     return Theory(
         signature,
         (*equations, wrapped),
-        macros,
-        "generic spin input",
-        original.wire_dimension,
+        name="generic spin input",
+        wire_dimension=original.wire_dimension,
     )
 
 
-def test_spin_expands_target_macros_and_ignores_unused_matrix_templates():
-    theory = _macro_wrapped_spin_theory()
+def test_spin_ignores_unused_matrix_templates():
+    theory = _generic_spin_theory()
     report = search_theory(
         theory,
         strategies=("spin",),
@@ -313,14 +266,12 @@ def test_spin_accepts_active_reflections_of_arbitrary_width(width: int):
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {
-                    "name": "reflection",
-                    "source": width,
-                    "target": width,
+            "generators": {
+                "reflection": {
+                    "type": width,
                     "matrix": diagonal,
                 }
-            ],
+            },
             "equations": [],
         }
     )
@@ -338,7 +289,7 @@ def test_spin_rejects_a_near_reflection():
 
 
 def test_spin_dense_dimension_guard_is_configurable_and_exact():
-    theory = _macro_wrapped_spin_theory()
+    theory = _generic_spin_theory()
     target = theory.equation("unrelated target name")
 
     with pytest.raises(NotApplicable, match="exceeds 31"):
@@ -362,22 +313,3 @@ def test_spin_dense_dimension_guard_is_configurable_and_exact():
         )
     )
     assert len(models) == 1
-
-
-def test_spin_rejects_matrix_free_inline_primitives_cleanly():
-    inline = Circuit.generator("inline reflection", 5, 5)
-    theory = Theory(
-        Signature(),
-        (Equation("inline target", inline, Circuit.identity(5)),),
-        wire_dimension=2,
-    )
-
-    with pytest.raises(NotApplicable, match="valid matrices"):
-        list(
-            spin.candidates(
-                theory,
-                theory.equation("inline target"),
-                bound=0,
-                deadline=Deadline.after(2),
-            )
-        )

@@ -11,12 +11,12 @@ from typing import Any
 
 from .core import (
     Circuit,
+    CircuitAnalysis,
     Equation,
     Theory,
+    analyze_circuit,
     contains_arity_change,
     iter_theory_terms,
-    primitive_occurrences,
-    structural_permutation_parity,
 )
 
 
@@ -47,7 +47,6 @@ class Deadline:
 
 @dataclass
 class CandidateModel:
-    kind: str
     description: str
     parameters: dict[str, Any]
     evaluator: Callable[[Any], Any]
@@ -87,7 +86,7 @@ class Separation:
 
 
 @dataclass(frozen=True)
-class DirectCertificate:
+class DirectEvidence:
     description: str
     parameters: dict[str, Any]
     lhs_value: Any
@@ -113,13 +112,12 @@ class SearchReport:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True)
 class SearchContext:
-    retained: Mapping[Equation, tuple[Equation, ...]]
+    retained: dict[Equation, tuple[Equation, ...]]
     active_primitive_count: int
     endomorphic: bool
-    term_occurrences: Mapping[Circuit, Counter[str]]
-    term_parities: dict[Circuit, int]
+    analyses: dict[Circuit, CircuitAnalysis]
 
     @classmethod
     def build(
@@ -131,7 +129,16 @@ class SearchContext:
         targets = tuple(targets)
         if deadline is not None:
             deadline.check()
-        endomorphic = _theory_is_endomorphic(theory, deadline)
+        checkpoint = deadline.check if deadline is not None else None
+        terms = dict.fromkeys(iter_theory_terms(theory))
+        for target in targets:
+            terms[target.lhs] = None
+            terms[target.rhs] = None
+        analyses = {
+            term: analyze_circuit(term, checkpoint)
+            for term in terms
+        }
+        endomorphic = _theory_is_endomorphic(theory, deadline, analyses)
         retained: dict[Equation, tuple[Equation, ...]] = {}
         for target in targets:
             if deadline is not None:
@@ -142,51 +149,41 @@ class SearchContext:
                     target,
                     endomorphic=endomorphic,
                     deadline=deadline,
+                    analyses=analyses,
                 )
             )
-        terms: list[Circuit] = []
         seen_terms: set[Circuit] = set()
         for target in targets:
             for equation in (*retained[target], target):
                 for term in (equation.lhs, equation.rhs):
-                    if term not in seen_terms:
-                        seen_terms.add(term)
-                        terms.append(term)
-        occurrences: dict[Circuit, Counter[str]] = {}
+                    seen_terms.add(term)
         active_names: set[str] = set()
-        for term in terms:
+        for term in seen_terms:
             if deadline is not None:
                 deadline.check()
-            counts = primitive_occurrences(term, theory.macros)
-            occurrences[term] = counts
-            active_names.update(counts)
+            active_names.update(dict(analyses[term].occurrences))
         return cls(
             retained,
             len(active_names),
             endomorphic,
-            occurrences,
-            {},
+            analyses,
         )
 
     def equations_for(self, target: Equation) -> tuple[Equation, ...]:
         return self.retained[target]
 
-    def occurrences_for(
-        self,
-        term: Circuit,
-        macros: Mapping[str, Circuit],
-    ) -> Counter[str]:
-        counts = self.term_occurrences.get(term)
-        return counts if counts is not None else primitive_occurrences(term, macros)
+    def analysis_for(self, term: Circuit) -> CircuitAnalysis:
+        analysis = self.analyses.get(term)
+        if analysis is None:
+            analysis = analyze_circuit(term)
+            self.analyses[term] = analysis
+        return analysis
 
-    def parity_for(
-        self,
-        term: Circuit,
-        macros: Mapping[str, Circuit],
-    ) -> int:
-        if term not in self.term_parities:
-            self.term_parities[term] = structural_permutation_parity(term, macros)
-        return self.term_parities[term]
+    def occurrences_for(self, term: Circuit) -> Counter[str]:
+        return self.analysis_for(term).occurrence_counter()
+
+    def parity_for(self, term: Circuit) -> int:
+        return self.analysis_for(term).permutation_parity
 
 
 @dataclass(frozen=True)
@@ -217,7 +214,7 @@ class StrategySpec:
 
     def load_candidates(
         self,
-    ) -> Callable[..., Iterator[CandidateModel | DirectCertificate]]:
+    ) -> Callable[..., Iterator[CandidateModel | DirectEvidence]]:
         module = importlib.import_module(
             f".separators.{self.name}",
             package=__package__,
@@ -227,7 +224,7 @@ class StrategySpec:
 
 @dataclass(frozen=True)
 class _ResolvedStrategy:
-    candidates: Callable[..., Iterator[CandidateModel | DirectCertificate]]
+    candidates: Callable[..., Iterator[CandidateModel | DirectEvidence]]
     max_bound: int
     bound_offset: int = 0
     options: Mapping[str, Any] = field(default_factory=dict)
@@ -304,12 +301,18 @@ DEFAULT_STRATEGIES = tuple(spec.name for spec in STRATEGY_SPECS)
 def _theory_is_endomorphic(
     theory: Theory,
     deadline: Deadline | None = None,
+    analyses: Mapping[Circuit, CircuitAnalysis] | None = None,
 ) -> bool:
     for generator in theory.signature.values():
         if deadline is not None:
             deadline.check()
         if generator.inputs != generator.outputs:
             return False
+    if analyses is not None:
+        return all(
+            not analyses[term].changes_arity
+            for term in iter_theory_terms(theory)
+        )
     checkpoint = deadline.check if deadline is not None else None
     return all(
         not contains_arity_change(term, checkpoint)
@@ -323,16 +326,23 @@ def _relevant_equations(
     *,
     endomorphic: bool,
     deadline: Deadline | None = None,
+    analyses: Mapping[Circuit, CircuitAnalysis] | None = None,
 ) -> list[Equation]:
     others = [
         equation
         for equation in theory.equations
         if equation.id != target.id
     ]
-    checkpoint = deadline.check if deadline is not None else None
-    target_changes_arity = contains_arity_change(
-        target.lhs, checkpoint
-    ) or contains_arity_change(target.rhs, checkpoint)
+    if analyses is not None:
+        target_changes_arity = (
+            analyses[target.lhs].changes_arity
+            or analyses[target.rhs].changes_arity
+        )
+    else:
+        checkpoint = deadline.check if deadline is not None else None
+        target_changes_arity = contains_arity_change(
+            target.lhs, checkpoint
+        ) or contains_arity_change(target.rhs, checkpoint)
     if not endomorphic or target_changes_arity:
         return others
     return [equation for equation in others if equation.arity <= target.arity]
@@ -351,6 +361,8 @@ def verify(
     target: Equation,
     deadline: Deadline,
     context: SearchContext | None = None,
+    *,
+    strategy: str,
 ) -> Separation | None:
     def compare(equation: Equation) -> tuple[Any, Any, bool]:
         deadline.check()
@@ -379,7 +391,7 @@ def verify(
         return None
     return Separation(
         equation=target.id,
-        strategy=model.kind,
+        strategy=strategy,
         description=model.description,
         parameters=model.parameters,
         checked_equations=tuple(checked),
@@ -390,27 +402,27 @@ def verify(
 
 
 def _direct_separation(
-    certificate: DirectCertificate,
+    evidence: DirectEvidence,
     target: Equation,
     strategy: str,
     context: SearchContext,
 ) -> Separation:
-    same = certificate.lhs_value == certificate.rhs_value
+    same = evidence.lhs_value == evidence.rhs_value
     if hasattr(same, "all"):
         same = bool(same.all())
     if same:
-        raise ValueError(f"direct certificate from {strategy} has equal target values")
+        raise ValueError(f"direct evidence from {strategy} has equal target values")
     return Separation(
         equation=target.id,
         strategy=strategy,
-        description=certificate.description,
-        parameters=certificate.parameters,
+        description=evidence.description,
+        parameters=evidence.parameters,
         checked_equations=tuple(
             equation.id for equation in context.equations_for(target)
         ),
-        lhs_value=certificate.lhs_value,
-        rhs_value=certificate.rhs_value,
-        certified=certificate.certified,
+        lhs_value=evidence.lhs_value,
+        rhs_value=evidence.rhs_value,
+        certified=evidence.certified,
     )
 
 
@@ -479,7 +491,7 @@ def _candidate_witnesses(
 
         deadline.check()
         try:
-            if isinstance(model, DirectCertificate):
+            if isinstance(model, DirectEvidence):
                 witness = _direct_separation(model, target, strategy_name, context)
             else:
                 seen_key = (
@@ -489,7 +501,14 @@ def _candidate_witnesses(
                 )
                 if seen_key is not None and seen_key in seen:
                     continue
-                witness = verify(model, theory, target, deadline, context)
+                witness = verify(
+                    model,
+                    theory,
+                    target,
+                    deadline,
+                    context,
+                    strategy=strategy_name,
+                )
                 if seen_key is not None:
                     seen.add(seen_key)
         except NotApplicable:

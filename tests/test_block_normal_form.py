@@ -60,21 +60,19 @@ def _sum_theory(
     *,
     matrix: list[list[int]] | None = None,
     retained: list[dict] | None = None,
-    extra_generators: list[dict] | None = None,
+    extra_generators: dict[str, object] | None = None,
 ) -> Theory:
     return Theory.from_json(
         {
             "name": f"SUM dimension {dimension}",
             "wire_dimension": dimension,
-            "generators": [
-                {
-                    "name": "SUM",
-                    "inputs": 2,
-                    "outputs": 2,
+            "generators": {
+                "SUM": {
+                    "type": 2,
                     "matrix": matrix if matrix is not None else _sum_matrix(dimension),
                 },
-                *(extra_generators or []),
-            ],
+                **(extra_generators or {}),
+            },
             "equations": [*(retained or []), _i_equation()],
         }
     )
@@ -131,9 +129,7 @@ def test_reversing_the_words_is_routed_dynamically():
     theory = Theory.from_json(
         {
             "wire_dimension": 2,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(2)}
-            ],
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(2)}},
             "equations": [
                 {
                     "id": "reversed",
@@ -172,9 +168,7 @@ def test_the_note_example_is_found_from_boundary_types_not_counts():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)}
-            ],
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(3)}},
             "equations": [
                 {
                     "id": "same_control_commutation",
@@ -241,13 +235,12 @@ def test_gate_names_rule_names_and_equation_order_are_irrelevant(
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {
-                    "name": "zebra_gate",
-                    "type": [2, 2],
+            "generators": {
+                "zebra_gate": {
+                    "type": 2,
                     "matrix": _sum_matrix(3),
                 }
-            ],
+            },
             "equations": equations,
         }
     )
@@ -274,12 +267,10 @@ def test_nested_macro_boxes_still_produce_a_positive_witness():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)}
-            ],
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(3)}},
             "macros": {
-                "inner": {"type": [2, 2], "body": {"gen": "G"}},
-                "outer": {"type": [2, 2], "body": {"macro": "inner"}},
+                "inner": {"gen": "G"},
+                "outer": {"macro": "inner"},
             },
             "equations": [
                 {
@@ -321,10 +312,10 @@ def test_distinct_binary_generator_names_are_supported():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": name, "type": [2, 2], "matrix": matrix}
+            "generators": {
+                name: {"type": 2, "matrix": matrix}
                 for name in names
-            ],
+            },
             "equations": [
                 {
                     "id": "mixed",
@@ -363,10 +354,10 @@ def test_generator_names_do_not_make_equal_normal_forms_different():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": name, "type": [2, 2], "matrix": matrix}
+            "generators": {
+                name: {"type": 2, "matrix": matrix}
                 for name in ("first_name", "second_name")
-            ],
+            },
             "equations": [
                 {
                     "id": "renaming",
@@ -406,9 +397,7 @@ def test_every_global_wire_relabeling_is_discovered(wire_map):
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)}
-            ],
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(3)}},
             "equations": [
                 {
                     "id": "relabelled",
@@ -451,14 +440,12 @@ def test_compact_and_explicit_prop_routing_have_the_same_blocks():
     compact = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {
-                    "name": "SUM",
-                    "inputs": 2,
-                    "outputs": 2,
+            "generators": {
+                "SUM": {
+                    "type": 2,
                     "matrix": _sum_matrix(3),
                 }
-            ],
+            },
             "equations": [
                 {
                     "id": "routing",
@@ -485,14 +472,12 @@ def test_compact_and_explicit_prop_routing_have_the_same_blocks():
     )
 
     equation = compact.equation("routing")
-    assert _logical_trace(compact, equation.lhs) == _logical_trace(
-        compact, equation.rhs
-    )
+    assert _logical_trace(equation.lhs) == _logical_trace(equation.rhs)
     deadline = Deadline.after(10)
     assert _normal_form(
-        _logical_trace(compact, equation.lhs), {"SUM"}, deadline
+        _logical_trace(equation.lhs), {"SUM"}, deadline
     ) == _normal_form(
-        _logical_trace(compact, equation.rhs), {"SUM"}, deadline
+        _logical_trace(equation.rhs), {"SUM"}, deadline
     )
     assert report.unresolved == ("routing",)
 
@@ -542,14 +527,12 @@ def test_multiple_boxes_in_one_block_are_conservatively_rejected():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {
-                    "name": "SUM",
-                    "inputs": 2,
-                    "outputs": 2,
+            "generators": {
+                "SUM": {
+                    "type": 2,
                     "matrix": _sum_matrix(3),
                 }
-            ],
+            },
             "equations": [
                 {
                     "id": "SUM3",
@@ -583,10 +566,10 @@ def test_a_lifted_retained_rule_on_nonadjacent_wires_cannot_be_separated():
     theory = Theory.from_json(
         {
             "wire_dimension": dimension,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": gate.tolist()},
-                {"name": "K", "type": [2, 2], "matrix": squared},
-            ],
+            "generators": {
+                "G": {"type": 2, "matrix": gate.tolist()},
+                "K": {"type": 2, "matrix": squared},
+            },
             "equations": [
                 {
                     "id": "retained",
@@ -658,10 +641,10 @@ def test_explicit_and_compact_contextual_routing_cannot_be_separated():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": matrix},
-                {"name": "K", "type": [2, 2], "matrix": matrix},
-            ],
+            "generators": {
+                "G": {"type": 2, "matrix": matrix},
+                "K": {"type": 2, "matrix": matrix},
+            },
             "equations": [
                 {"id": "retained", "lhs": {"gen": "G"}, "rhs": {"gen": "K"}},
                 {
@@ -701,12 +684,8 @@ def test_structural_swap_hidden_in_a_macro_cannot_fake_a_separator():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)}
-            ],
-            "macros": {
-                "P": {"type": [2, 2], "body": {"perm": [1, 0]}}
-            },
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(3)}},
+            "macros": {"P": {"perm": [1, 0]}},
             "equations": [
                 {
                     "id": "naturality",
@@ -740,25 +719,17 @@ def test_entangling_macros_cannot_hide_structural_routing():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)}
-            ],
+            "generators": {"G": {"type": 2, "matrix": _sum_matrix(3)}},
             "macros": {
                 "T": {
-                    "type": [2, 2],
-                    "body": {
-                        "compose": [{"perm": [1, 0]}, {"gen": "G"}]
-                    },
+                    "compose": [{"perm": [1, 0]}, {"gen": "G"}]
                 },
                 "R": {
-                    "type": [2, 2],
-                    "body": {
-                        "compose": [
-                            {"perm": [1, 0]},
-                            {"gen": "G"},
-                            {"perm": [1, 0]},
-                        ]
-                    },
+                    "compose": [
+                        {"perm": [1, 0]},
+                        {"gen": "G"},
+                        {"perm": [1, 0]},
+                    ]
                 },
             },
             "equations": [
@@ -790,10 +761,10 @@ def test_entangling_macros_cannot_hide_structural_routing():
     )
     equation = theory.equation("coherence")
     left = evaluate_matrix(
-        equation.lhs, theory.signature, theory.macros, theory.wire_dimension
+        equation.lhs, theory.signature, theory.wire_dimension
     )
     right = evaluate_matrix(
-        equation.rhs, theory.signature, theory.macros, theory.wire_dimension
+        equation.rhs, theory.signature, theory.wire_dimension
     )
     np.testing.assert_allclose(left, right, atol=1e-8, rtol=1e-8)
 
@@ -811,16 +782,15 @@ def test_swap_local_primitive_cannot_hide_routing_inside_entangling_blocks():
     theory = Theory.from_json(
         {
             "wire_dimension": 3,
-            "generators": [
-                {"name": "G", "type": [2, 2], "matrix": _sum_matrix(3)},
-                {
-                    "name": "P",
-                    "type": [2, 2],
+            "generators": {
+                "G": {"type": 2, "matrix": _sum_matrix(3)},
+                "P": {
+                    "type": 2,
                     "matrix": permutation_matrix((1, 0), 3)
                     .real.astype(int)
                     .tolist(),
                 },
-            ],
+            },
             "equations": [
                 {"id": "Pswap", "lhs": {"gen": "P"}, "rhs": {"perm": [1, 0]}},
                 {
@@ -855,10 +825,10 @@ def test_swap_local_primitive_cannot_hide_routing_inside_entangling_blocks():
     )
     equation = theory.equation("derived")
     left = evaluate_matrix(
-        equation.lhs, theory.signature, theory.macros, theory.wire_dimension
+        equation.lhs, theory.signature, theory.wire_dimension
     )
     right = evaluate_matrix(
-        equation.rhs, theory.signature, theory.macros, theory.wire_dimension
+        equation.rhs, theory.signature, theory.wire_dimension
     )
     np.testing.assert_allclose(left, right, atol=1e-8, rtol=1e-8)
 
@@ -910,14 +880,12 @@ def test_nonidentity_net_routing_is_not_guessed_about():
 def test_arity_changing_signature_is_rejected_even_when_unused():
     theory = _sum_theory(
         3,
-        extra_generators=[
-            {
-                "name": "state",
-                "inputs": 0,
-                "outputs": 1,
+        extra_generators={
+            "state": {
+                "type": [0, 1],
                 "matrix": [[1], [0], [0]],
             }
-        ],
+        },
     )
     report = search_theory(
         theory,

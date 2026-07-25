@@ -31,12 +31,12 @@ def candidates(
     def features(term: Any) -> tuple[Any, int]:
         if context is not None:
             return (
-                context.occurrences_for(term, theory.macros),
-                context.parity_for(term, theory.macros),
+                context.occurrences_for(term),
+                context.parity_for(term),
             )
         return (
-            primitive_occurrences(term, theory.macros),
-            structural_permutation_parity(term, theory.macros),
+            primitive_occurrences(term),
+            structural_permutation_parity(term),
         )
 
     for values in product(range(modulus), repeat=len(names)):
@@ -62,7 +62,6 @@ def candidates(
             if swap:
                 description += f", swap={swap}"
             yield CandidateModel(
-                kind="counting",
                 description=description,
                 parameters={"modulus": modulus, "weights": nonzero, "swap": swap},
                 evaluator=evaluate,

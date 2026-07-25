@@ -7,14 +7,14 @@ from functools import lru_cache
 from itertools import permutations
 from typing import Any
 
-from ..core import Circuit, expand_macros
+from ..core import Circuit
 from ..search import (
     CandidateModel,
     Deadline,
     NotApplicable,
 )
 from . import fixed_arity
-from .common import require_endomorphic_theory, retained_equations
+from .common import require_endomorphic_theory
 from .fixed_arity import Token, Word
 
 Permutation = tuple[int, ...]
@@ -286,81 +286,51 @@ def candidates(
     deadline.check()
     require_endomorphic_theory(theory, deadline, context)
 
-    arity = target.arity
-    if arity < 0:
-        raise NotApplicable("permutation search requires a non-negative target arity")
-    declared_signature = fixed_arity.generator_arities(theory, target, deadline)
-    others = retained_equations(theory, target, context)
-    signature = {
-        name: width
-        for name, width in declared_signature.items()
-        if width <= arity
-    }
-
-    compile_term = fixed_arity.theory_word_compiler(
-        theory.macros, signature, arity, deadline
+    presentation = fixed_arity.compile_presentation(
+        theory,
+        target,
+        deadline,
+        context,
     )
-
-    pairs = tuple(
-        (compile_term(equation.lhs), compile_term(equation.rhs))
-        for equation in (*others, target)
+    constraints = presentation.separation_constraints
+    solution = _find_assignment(
+        presentation.variables,
+        constraints,
+        bound,
+        deadline,
     )
-    retained_pairs = tuple(
-        pair for pair in pairs[:-1] if pair[0] != pair[1]
-    )
-    target_pair = pairs[-1]
-    used = {
-        token
-        for pair in (*retained_pairs, target_pair)
-        for word in pair
-        for token in word
-        if token[0] == "generator"
-    }
-    generator_specs = tuple(
-        (name, width)
-        for name, width in signature.items()
-        if fixed_arity.generator(name) in used
-    )
-    constraints = list(
-        fixed_arity.prop_constraints(arity, generator_specs, deadline)
-    )
-    for left, right in retained_pairs:
-        constraints.append(fixed_arity.Constraint(left, right))
-    target_left, target_right = target_pair
-    constraints.append(
-        fixed_arity.Constraint(target_left, target_right, equal=False)
-    )
-
-    variables = tuple(
-        fixed_arity.generator(name) for name, _ in generator_specs
-    ) + tuple(fixed_arity.swap(index) for index in range(arity - 1))
-    solution = _find_assignment(variables, tuple(constraints), bound, deadline)
     if solution is None:
         return
-    _validate_assignment(variables, tuple(constraints), solution, bound, deadline)
+    _validate_assignment(
+        presentation.variables,
+        constraints,
+        solution,
+        bound,
+        deadline,
+    )
 
     identity = _identity(bound)
     full_assignment = {
         fixed_arity.generator(name): solution.get(
             fixed_arity.generator(name), identity
         )
-        for name in signature
+        for name in presentation.signature
     }
     full_assignment.update(
         {
             fixed_arity.swap(index): solution[fixed_arity.swap(index)]
-            for index in range(arity - 1)
+            for index in range(presentation.arity - 1)
         }
     )
     generator_values = {
         name: list(full_assignment[fixed_arity.generator(name)])
-        for name in signature
+        for name in presentation.signature
     }
     swap_values = {
         fixed_arity.display_name(fixed_arity.swap(index)): list(
             full_assignment[fixed_arity.swap(index)]
         )
-        for index in range(arity - 1)
+        for index in range(presentation.arity - 1)
     }
 
     def render(values: Mapping[str, list[int]]) -> str:
@@ -371,22 +341,25 @@ def candidates(
         rendered += f"; structural swaps {{{render(swap_values)}}}"
 
     def evaluate(term: Circuit) -> Permutation:
-        expanded = expand_macros(term, theory.macros)
-        if expanded.inputs != expanded.outputs or expanded.inputs > arity:
+        if term.inputs != term.outputs or term.inputs > presentation.arity:
             raise NotApplicable(
-                f"permutation interpretation supports endomorphisms through arity {arity}"
+                "permutation interpretation supports endomorphisms through arity "
+                f"{presentation.arity}"
             )
         return _evaluate(
-            fixed_arity.compile_word(expanded, signature, arity),
+            fixed_arity.compile_word(
+                term,
+                presentation.signature,
+                presentation.arity,
+            ),
             full_assignment,
             bound,
         )
 
     yield CandidateModel(
-        kind="finite_model",
         description=f"degree-{bound} permutation interpretation: {rendered}",
         parameters={
-            "arity": arity,
+            "arity": presentation.arity,
             "degree": bound,
             "interpretation": {
                 "generators": generator_values,

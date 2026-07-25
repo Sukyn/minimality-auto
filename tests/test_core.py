@@ -9,7 +9,7 @@ from minimality_auto.core import (
     Theory,
     ValidationError,
     contains_arity_change,
-    expand_macros,
+    iter_circuit_nodes,
     load_json,
     parse_complex,
     primitive_occurrences,
@@ -25,11 +25,7 @@ from minimality_auto.matrix import (
 @pytest.fixture
 def signature():
     return Signature.from_json(
-        [
-            {"id": "u", "inputs": 1, "outputs": 1},
-            {"id": "mul", "inputs": 2, "outputs": 1},
-            {"id": "unit", "inputs": 0, "outputs": 1},
-        ]
+        {"u": 1, "mul": [2, 1], "unit": [0, 1]}
     )
 
 
@@ -68,13 +64,6 @@ def test_circuit_constructors_apply_prop_unit_laws(signature):
         Circuit.compose((Circuit.identity(1), Circuit.identity(2)))
 
 
-def test_source_target_generator_aliases_match_the_documented_schema():
-    signature = Signature.from_json(
-        [{"name": "u", "source": 1, "target": 1, "matrix": [[1, 0], [0, 1]]}]
-    )
-    assert signature["u"].type == (1, 1)
-
-
 def test_scalar_type_is_endomorphism_shorthand_without_losing_prop_types():
     signature = Signature.from_json(
         {
@@ -92,12 +81,7 @@ def test_scalar_type_is_endomorphism_shorthand_without_losing_prop_types():
         {
             "generators": {"H": 1},
             "macros": {
-                "H2": {
-                    "type": 1,
-                    "body": {
-                        "compose": [{"gen": "H"}, {"gen": "H"}],
-                    },
-                }
+                "H2": {"compose": [{"gen": "H"}, {"gen": "H"}]}
             },
             "equations": [],
         }
@@ -105,19 +89,19 @@ def test_scalar_type_is_endomorphism_shorthand_without_losing_prop_types():
     assert theory.macros["H2"].type == (1, 1)
 
 
-@pytest.mark.parametrize("bad_type", [True, -1, [1], [1, -1]])
+@pytest.mark.parametrize("bad_type", [True, -1, [1], [1, -1], [1, 1]])
 def test_scalar_and_pair_types_remain_strict(bad_type):
     with pytest.raises(ValidationError):
         Signature.from_json({"bad": bad_type})
 
 
-def test_type_cannot_be_mixed_with_endpoint_fields():
-    with pytest.raises(ValidationError, match="cannot mix type"):
+def test_generator_specs_reject_noncanonical_fields():
+    with pytest.raises(ValidationError, match="unknown generator"):
         Signature.from_json({"bad": {"type": 1, "inputs": 1, "outputs": 1}})
 
 
 def test_generators_is_not_a_reserved_generator_name():
-    signature = Signature.from_json({"generators": [1, 1]})
+    signature = Signature.from_json({"generators": 1})
 
     assert signature["generators"].type == (1, 1)
 
@@ -163,94 +147,48 @@ def test_compact_parser_canonicalizes_units_and_validates_permutations(signature
         )
 
 
-def test_compact_wiring_accepts_typed_inline_generators_and_checks_types():
-    signature = Signature.from_json({"known": [1, 1]})
-    inline = Circuit.from_json(
-        {
-            "wires": 1,
-            "ops": [
-                {"gen": {"id": "external", "type": [1, 2]}, "on": 0}
-            ],
-        },
-        signature,
-    )
-
-    assert inline.type == (1, 2)
-    assert primitive_occurrences(inline) == Counter(external=1)
-    with pytest.raises(ValidationError, match="inline type disagrees"):
-        Circuit.from_json(
-            {
-                "wires": 1,
-                "ops": [
-                    {"gen": {"id": "known", "type": [1, 2]}, "on": [0]}
-                ],
-            },
-            signature,
-        )
-
-
-def test_macros_expand_before_features_and_cycles_fail():
+def test_macros_are_expanded_during_loading_and_cycles_fail():
     theory = Theory.from_json(
         {
-            "generators": {"u": [1, 1]},
-            "macros": [
-                {"id": "twice", "body": {"compose": [{"gen": "u"}, {"gen": "u"}]}},
-                {"id": "four", "body": {"compose": [{"macro": "twice"}, {"macro": "twice"}]}},
-            ],
+            "generators": {"u": 1},
+            "macros": {
+                "twice": {"compose": [{"gen": "u"}, {"gen": "u"}]},
+                "four": {
+                    "compose": [{"macro": "twice"}, {"macro": "twice"}]
+                },
+            },
             "equations": [{"id": "e", "lhs": {"macro": "four"}, "rhs": {"gen": "u"}}],
         }
     )
     lhs = theory.equations[0].lhs
-    assert primitive_occurrences(lhs, theory.macros) == Counter(u=4)
-    assert "macro" not in json.dumps(expand_macros(lhs, theory.macros).to_json())
+    assert primitive_occurrences(lhs) == Counter(u=4)
+    assert lhs.parts[0] is theory.macros["twice"]
+    assert lhs.parts[1] is theory.macros["twice"]
+    assert all(
+        node.kind != "macro"
+        for term in (*theory.macros.values(), lhs)
+        for node in iter_circuit_nodes(term)
+    )
+    assert "macro" not in json.dumps(lhs.to_json())
 
     with pytest.raises(ValidationError, match=r"macro cycle: a -> b -> a"):
         Theory.from_json(
             {
-                "generators": {"u": [1, 1]},
+                "generators": {"u": 1},
                 "macros": {
-                    "a": {"type": [1, 1], "body": {"macro": "b"}},
-                    "b": {"type": [1, 1], "body": {"macro": "a"}},
+                    "a": {"macro": "b"},
+                    "b": {"macro": "a"},
                 },
                 "equations": [],
             }
         )
 
 
-def test_mapping_macros_accept_direct_circuit_bodies():
-    theory = Theory.from_json(
-        {
-            "generators": {"u": 1},
-            "macros": {
-                "twice": {"compose": [{"gen": "u"}, {"gen": "u"}]}
-            },
-            "equations": [],
-        }
-    )
-
-    assert primitive_occurrences(theory.macros["twice"]) == Counter(u=2)
-
-
-def test_cached_macro_uses_still_validate_each_occurrence_type():
-    signature = Signature([])
-    macros = {"wire": Circuit.identity(1)}
-    malformed = Circuit.tensor(
-        (Circuit.macro("wire", 1, 1), Circuit.macro("wire", 2, 2))
-    )
-
-    with pytest.raises(ValidationError, match="inconsistent type"):
-        primitive_occurrences(malformed, macros)
-    with pytest.raises(ValidationError, match="inconsistent type"):
-        structural_permutation_parity(malformed, macros)
-    with pytest.raises(ValidationError, match="inconsistent type"):
-        MatrixSemantics(signature).evaluate(malformed, macros)
-
-
 def test_duplicate_ids_and_keys_are_rejected(tmp_path):
     with pytest.raises(ValidationError, match="duplicate equation id"):
         Theory.from_json(
             {
-                "generators": {"u": [1, 1]},
+                "generators": {"u": 1},
                 "equations": [
                     {"id": "same", "lhs": {"gen": "u"}, "rhs": {"gen": "u"}},
                     {"id": "same", "lhs": {"gen": "u"}, "rhs": {"gen": "u"}},
@@ -266,7 +204,7 @@ def test_duplicate_ids_and_keys_are_rejected(tmp_path):
 def test_matrix_semantics_and_call_overrides():
     np = pytest.importorskip("numpy")
     signature = Signature.from_json(
-        [{"id": "x", "inputs": 1, "outputs": 1, "matrix": [[0, 1], [1, 0]]}]
+        {"x": {"type": 1, "matrix": [[0, 1], [1, 0]]}}
     )
     circuit = Circuit.from_json(
         {"compose": [{"gen": "x"}, {"gen": "x"}]}, signature
@@ -281,7 +219,7 @@ def test_matrix_semantics_and_call_overrides():
         ),
         np.eye(2),
     )
-    parsed = parse_complex_matrix([["1+i", {"re": 0, "im": -2}]])
+    parsed = parse_complex_matrix([["1+i", "-2i"]])
     np.testing.assert_allclose(parsed, [[1 + 1j, -2j]])
 
     diagonal = parse_complex_matrix({"diagonal": [1, "i", -1]})
@@ -316,9 +254,8 @@ def test_matrix_evaluation_caches_repeated_subterms(monkeypatch):
 @pytest.mark.parametrize(
     "value",
     [
-        {"real": [1]},
-        {"real": [[1]], "imag": [1]},
-        {"real": [[1]], "unexpected": []},
+        {"real": [[1]]},
+        {"imag": [[1]]},
         {"diagonal": []},
         {"diagonal": "1"},
         {"diagonal": [1], "unexpected": []},
@@ -343,7 +280,7 @@ def test_compact_endomorphism_returns_nonadjacent_wires_to_their_slots():
     np = pytest.importorskip("numpy")
     cnot = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]
     signature = Signature.from_json(
-        [{"id": "CNOT", "inputs": 2, "outputs": 2, "matrix": cnot}]
+        {"CNOT": {"type": 2, "matrix": cnot}}
     )
     circuit = Circuit.from_json(
         {"wires": 3, "ops": [{"gen": "CNOT", "on": [0, 2]}]}, signature
@@ -359,7 +296,14 @@ def test_compact_endomorphism_returns_nonadjacent_wires_to_their_slots():
 
 @pytest.mark.parametrize(
     "value",
-    [float("nan"), float("inf"), "nan", {"re": True}, {"im": False}],
+    [
+        float("nan"),
+        float("inf"),
+        "nan",
+        {"re": 0},
+        {"real": 0},
+        True,
+    ],
 )
 def test_complex_scalars_must_be_finite_numbers(value):
     with pytest.raises(ValidationError):
@@ -378,7 +322,7 @@ def test_theory_rejects_unknown_circuit_fields_and_wrong_matrix_shapes():
     with pytest.raises(ValidationError, match="unknown circuit fields"):
         Theory.from_json(
             {
-                "generators": {"x": [1, 1]},
+                "generators": {"x": 1},
                 "equations": [
                     {
                         "id": "bad",
@@ -395,8 +339,7 @@ def test_theory_rejects_unknown_circuit_fields_and_wrong_matrix_shapes():
                 "wire_dimension": 2,
                 "generators": {
                     "x": {
-                        "inputs": 1,
-                        "outputs": 1,
+                        "type": 1,
                         "matrix": [[1]],
                     }
                 },
@@ -421,33 +364,19 @@ def test_matrix_shape_validation_rejects_huge_arities_without_huge_integers():
         )
 
 
-@pytest.mark.parametrize(
-    "parse",
-    [
-        lambda: parse_complex({"re": 1, "real": 1}),
-        lambda: Signature.from_json(
-            [{"id": "x", "name": "x", "type": 1}]
-        ),
-        lambda: Circuit.from_json(
-            {"gen": {"id": "x", "name": "x"}},
-            Signature.from_json({"x": 1}),
-        ),
-        lambda: Theory.from_json(
+def test_noncanonical_declaration_forms_are_rejected():
+    with pytest.raises(ValidationError, match="generators must be an object"):
+        Signature.from_json([{"id": "x", "type": 1}])
+    with pytest.raises(ValidationError, match="unknown theory"):
+        Theory.from_json(
             {
-                "wire_dimension": 2,
                 "dimension": 2,
                 "generators": {},
                 "equations": [],
             }
-        ),
-        lambda: Theory.from_json(
-            {
-                "generators": {},
-                "signature": {},
-                "equations": [],
-            }
-        ),
-        lambda: Theory.from_json(
+        )
+    with pytest.raises(ValidationError, match="unknown equation"):
+        Theory.from_json(
             {
                 "generators": {"x": 1},
                 "equations": [
@@ -459,24 +388,15 @@ def test_matrix_shape_validation_rejects_huge_arities_without_huge_integers():
                     }
                 ],
             }
-        ),
-        lambda: Theory.from_json(
+        )
+    with pytest.raises(ValidationError):
+        Theory.from_json(
             {
                 "generators": {"x": 1},
-                "macros": {
-                    "m": {
-                        "body": {"gen": "x"},
-                        "circuit": {"gen": "x"},
-                    }
-                },
+                "macros": {"m": {"body": {"gen": "x"}}},
                 "equations": [],
             }
-        ),
-    ],
-)
-def test_json_aliases_are_mutually_exclusive(parse):
-    with pytest.raises(ValidationError, match="cannot use aliases together"):
-        parse()
+        )
 
 
 def test_arity_change_detection_checks_nested_subterms():
@@ -489,40 +409,9 @@ def test_arity_change_detection_checks_nested_subterms():
     assert not contains_arity_change(Circuit.identity(1))
 
 
-def test_typed_inline_generator_round_trips_without_a_signature():
-    signature = Signature()
-    changing = Circuit.from_json(
-        {"gen": {"id": "external", "type": [1, 2]}},
-        signature,
-    )
-    endomorphism = Circuit.from_json(
-        {"gen": {"id": "endo", "type": 1}},
-        signature,
-    )
+def test_declared_generator_round_trips_in_canonical_form():
+    signature = Signature.from_json({"grow": [1, 2]})
+    changing = Circuit.from_json({"gen": "grow"}, signature)
 
-    assert changing.to_json()["gen"]["type"] == [1, 2]
-    assert endomorphism.to_json()["gen"]["type"] == 1
+    assert changing.to_json() == {"gen": "grow"}
     assert Circuit.from_json(changing.to_json(), signature) == changing
-    assert Circuit.from_json(endomorphism.to_json(), signature) == endomorphism
-
-
-def test_outer_type_annotation_is_checked_for_nested_inline_generator():
-    signature = Signature.from_json({"known": 1})
-
-    with pytest.raises(ValidationError, match="inline type disagrees"):
-        Circuit.from_json(
-            {
-                "gen": {"id": "known"},
-                "inputs": 2,
-                "outputs": 2,
-            },
-            signature,
-        )
-    with pytest.raises(ValidationError, match="declared twice"):
-        Circuit.from_json(
-            {
-                "gen": {"id": "external", "type": 1},
-                "type": 1,
-            },
-            signature,
-        )

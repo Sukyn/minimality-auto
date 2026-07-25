@@ -5,7 +5,7 @@ from itertools import permutations, product
 
 import pytest
 
-from minimality_auto.core import Circuit, Equation, Signature, Theory
+from minimality_auto.core import Circuit, Theory
 from minimality_auto.search import Deadline, NotApplicable, search_theory
 from minimality_auto.separators import finite_model, fixed_arity
 
@@ -20,7 +20,7 @@ def _compiled(term: Circuit, theory: Theory, arity: int):
 def test_every_small_prop_assignment_respects_naturality_and_interchange():
     theory = Theory.from_json(
         {
-            "generators": {"left box": [1, 1], "right/box": [1, 1]},
+            "generators": {"left box": 1, "right/box": 1},
             "equations": [
                 {
                     "id": "dummy",
@@ -77,7 +77,7 @@ def test_every_small_prop_assignment_respects_naturality_and_interchange():
 def test_scalar_centrality_holds_for_every_small_prop_assignment():
     theory = Theory.from_json(
         {
-            "generators": {"scalar": [0, 0], "gate": [1, 1]},
+            "generators": {"scalar": 0, "gate": 1},
             "equations": [
                 {
                     "id": "dummy",
@@ -117,9 +117,9 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
     theory = Theory.from_json(
         {
             "generators": {
-                "scalar": [0, 0],
-                "unary": [1, 1],
-                "binary": [2, 2],
+                "scalar": 0,
+                "unary": 1,
+                "binary": 2,
             },
             "equations": [
                 {"id": "dummy", "lhs": {"gen": "unary"}, "rhs": {"gen": "unary"}}
@@ -277,34 +277,10 @@ def test_pure_structural_theories_need_no_named_generators():
     }
 
 
-def test_finite_model_interprets_inline_typed_generators():
-    theory = Theory(
-        Signature(()),
-        (
-            Equation(
-                "inline target",
-                Circuit.generator("fresh", 1, 1),
-                Circuit.identity(1),
-            ),
-        ),
-    )
-    report = search_theory(
-        theory,
-        strategies=("finite_model",),
-        max_permutation_degree=2,
-        timeout=2,
-    )
-
-    interpretation = report.witnesses["inline target"].parameters[
-        "interpretation"
-    ]
-    assert interpretation["generators"] == {"fresh": [1, 0]}
-
-
-def test_hidden_arity_changing_macro_rejects_fixed_wire_search():
+def test_arity_changing_signature_rejects_fixed_wire_search():
     theory = Theory.from_json(
         {
-            "generators": {"turn": [1, 1]},
+            "generators": {"turn": 1, "fresh": [0, 1]},
             "equations": [
                 {
                     "id": "turn2",
@@ -316,9 +292,8 @@ def test_hidden_arity_changing_macro_rejects_fixed_wire_search():
             ],
         }
     )
-    theory.macros["hidden grow"] = Circuit.generator("fresh", 0, 1)
 
-    with pytest.raises(NotApplicable, match="terms and macros"):
+    with pytest.raises(NotApplicable, match="endomorphic"):
         next(
             finite_model.candidates(
                 theory,

@@ -14,10 +14,10 @@ def test_matrix_semantics_satisfies_naturality_for_arity_changing_boxes():
     f_matrix = np.arange(8, dtype=float).reshape(4, 2) / 7
     g_matrix = np.arange(8, 16, dtype=float).reshape(2, 4) / 11
     signature = Signature.from_json(
-        [
-            {"id": "f", "inputs": 1, "outputs": 2, "matrix": f_matrix.tolist()},
-            {"id": "g", "inputs": 2, "outputs": 1, "matrix": g_matrix.tolist()},
-        ]
+        {
+            "f": {"type": [1, 2], "matrix": f_matrix.tolist()},
+            "g": {"type": [2, 1], "matrix": g_matrix.tolist()},
+        }
     )
     f = Circuit.generator(signature["f"])
     g = Circuit.generator(signature["g"])
@@ -37,12 +37,12 @@ def test_matrix_semantics_satisfies_tensor_interchange_for_rectangular_maps():
         "g2": np.arange(8, dtype=float).reshape(4, 2) / 13,
     }
     signature = Signature.from_json(
-        [
-            {"id": "f1", "inputs": 1, "outputs": 2, "matrix": matrices["f1"].tolist()},
-            {"id": "f2", "inputs": 2, "outputs": 1, "matrix": matrices["f2"].tolist()},
-            {"id": "g1", "inputs": 2, "outputs": 1, "matrix": matrices["g1"].tolist()},
-            {"id": "g2", "inputs": 1, "outputs": 2, "matrix": matrices["g2"].tolist()},
-        ]
+        {
+            "f1": {"type": [1, 2], "matrix": matrices["f1"].tolist()},
+            "f2": {"type": [2, 1], "matrix": matrices["f2"].tolist()},
+            "g1": {"type": [2, 1], "matrix": matrices["g1"].tolist()},
+            "g2": {"type": [1, 2], "matrix": matrices["g2"].tolist()},
+        }
     )
     f1, f2, g1, g2 = (Circuit.generator(signature[name]) for name in matrices)
     semantics = MatrixSemantics(signature)
@@ -63,7 +63,7 @@ def test_compact_arity_changing_placement_preserves_untouched_wire_order():
         ]
     )
     signature = Signature.from_json(
-        [{"id": "grow", "inputs": 1, "outputs": 2, "matrix": grow.tolist()}]
+        {"grow": {"type": [1, 2], "matrix": grow.tolist()}}
     )
     circuit = Circuit.from_json(
         {"wires": 2, "ops": [{"gen": "grow", "on": [1]}]}, signature

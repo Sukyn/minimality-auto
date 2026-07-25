@@ -58,12 +58,8 @@ def test_imported_paper_equations_are_sound_in_the_supplied_matrices(theory_path
     theory = load_theory(theory_path)
     failures: list[str] = []
     for equation in theory.equations:
-        left = evaluate_matrix(
-            equation.lhs, theory.signature, theory.macros, theory.wire_dimension
-        )
-        right = evaluate_matrix(
-            equation.rhs, theory.signature, theory.macros, theory.wire_dimension
-        )
+        left = evaluate_matrix(equation.lhs, theory.signature, theory.wire_dimension)
+        right = evaluate_matrix(equation.rhs, theory.signature, theory.wire_dimension)
         if not np.allclose(left, right, atol=1e-8, rtol=1e-8):
             failures.append(
                 f"{equation.id} (max error {float(np.max(np.abs(left - right))):.6g})"
@@ -117,12 +113,8 @@ def test_real_cf_printed_rhs_is_unsound():
         theory.signature,
         theory.macros,
     )
-    left = evaluate_matrix(
-        equation.lhs, theory.signature, theory.macros, theory.wire_dimension
-    )
-    printed = evaluate_matrix(
-        printed_rhs, theory.signature, theory.macros, theory.wire_dimension
-    )
+    left = evaluate_matrix(equation.lhs, theory.signature, theory.wire_dimension)
+    printed = evaluate_matrix(printed_rhs, theory.signature, theory.wire_dimension)
     assert not np.allclose(left, printed, atol=1e-8, rtol=1e-8)
 
 
@@ -134,14 +126,12 @@ def test_qutrit_e_records_the_global_phase_conflict_in_the_prose_matrix():
     left = evaluate_matrix(
         equation.lhs,
         theory.signature,
-        theory.macros,
         theory.wire_dimension,
         overrides=override,
     )
     right = evaluate_matrix(
         equation.rhs,
         theory.signature,
-        theory.macros,
         theory.wire_dimension,
         overrides=override,
     )

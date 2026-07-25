@@ -119,7 +119,7 @@ def test_search_is_independent_of_generator_names_and_equation_ids():
     theory = Theory.from_json(
         {
             "name": "renamed_one_wire_fragment",
-            "generators": {"alpha": [1, 1], "beta": [1, 1]},
+            "generators": {"alpha": 1, "beta": 1},
             "equations": [
                 {
                     "id": "alpha_square",
@@ -154,7 +154,7 @@ def test_generator_names_cannot_collide_with_structural_output_names():
     name = "swap[0,1]"
     theory = Theory.from_json(
         {
-            "generators": {name: [2, 2]},
+            "generators": {name: 2},
             "equations": [
                 {
                     "id": "square",
@@ -199,7 +199,7 @@ def test_generic_search_supports_scalars_in_an_unrelated_fragment():
 def test_permutation_degree_is_increased_step_by_step():
     theory = Theory.from_json(
         {
-            "generators": {"turn": [1, 1]},
+            "generators": {"turn": 1},
             "equations": [
                 {
                     "id": "turn2",
@@ -312,7 +312,7 @@ def test_models_reject_terms_above_their_fixed_arity():
 def test_arity_changing_signatures_are_rejected():
     theory = Theory.from_json(
         {
-            "generators": {"gate": [1, 1], "grow": [1, 2]},
+            "generators": {"gate": 1, "grow": [1, 2]},
             "equations": [
                 {"id": "drop", "lhs": {"gen": "gate"}, "rhs": {"id": 1}}
             ],

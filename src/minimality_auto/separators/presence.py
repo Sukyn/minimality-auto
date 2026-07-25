@@ -31,9 +31,9 @@ def candidates(
 
     def occurrences(term: Any) -> Any:
         return (
-            context.occurrences_for(term, theory.macros)
+            context.occurrences_for(term)
             if context is not None
-            else primitive_occurrences(term, theory.macros)
+            else primitive_occurrences(term)
         )
 
     for selected_tuple in combinations(names, bound):
@@ -45,7 +45,6 @@ def candidates(
 
         label = ", ".join(selected_tuple)
         yield CandidateModel(
-            kind="presence",
             description=f"presence of {{{label}}}",
             parameters={"generators": list(selected_tuple)},
             evaluator=evaluate,
