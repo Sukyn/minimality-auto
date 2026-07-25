@@ -82,7 +82,6 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
     }
     model = amalgam._Amalgam(
         base,
-        shared,
         second,
         decomposition,
         {value: index for index, value in enumerate(representatives)},
@@ -136,7 +135,7 @@ def test_amalgam_semidirect_factor_is_associative():
 def test_amalgam_normalizer_honours_the_shared_search_deadline():
     (
         base,
-        quotient,
+        _quotient,
         shared,
         second,
         decomposition,
@@ -145,7 +144,6 @@ def test_amalgam_normalizer_honours_the_shared_search_deadline():
     token = ("c", 1)
     model = amalgam._Amalgam(
         base,
-        shared,
         second,
         decomposition,
         {value: index for index, value in enumerate(representatives)},
@@ -190,7 +188,7 @@ def test_amalgam_bridge_search_includes_retained_only_generators():
         theory,
         theory.equation("arbitrary target"),
         1,
-        {name: 1 for name in theory.signature},
+        dict.fromkeys(theory.signature, 1),
         Deadline.after(2),
     )
     active = {
@@ -314,7 +312,7 @@ def test_spin_rejects_invalid_retained_only_primitive():
         wire_dimension=2,
     )
 
-    with pytest.raises(NotApplicable, match="bad.*not a real orthogonal reflection"):
+    with pytest.raises(NotApplicable, match=r"bad.*not a real orthogonal reflection"):
         list(
             spin.candidates(
                 theory,

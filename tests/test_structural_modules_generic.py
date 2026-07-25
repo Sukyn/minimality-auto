@@ -7,6 +7,10 @@ import numpy as np
 from minimality_auto.core import Circuit, Equation, Signature, Theory
 from minimality_auto.search import Deadline, search_theory
 from minimality_auto.separators import counting, determinant, substitution
+from minimality_auto.separators.common import (
+    projectively_equal,
+    wire_parity_is_preserved,
+)
 
 
 def test_presence_handles_arity_changes_and_inline_primitive_names():
@@ -111,8 +115,8 @@ def test_wire_parity_check_is_iterative_for_deep_programmatic_terms():
     preserving = nest(Circuit.generator("inline", 1, 1), 1_500)
     changing = nest(Circuit.generator("inline grow", 1, 2), 1_500)
 
-    assert counting._wire_parity_is_preserved(theory, preserving)
-    assert not counting._wire_parity_is_preserved(theory, changing)
+    assert wire_parity_is_preserved(theory, preserving)
+    assert not wire_parity_is_preserved(theory, changing)
 
 
 def test_swap_phase_checks_an_external_target_for_inline_arity_changes():
@@ -358,8 +362,7 @@ def test_substitution_word_search_does_not_recurse_with_depth():
             0,
             1_100,
             Deadline.after(5),
-            frozenset({"tick"}),
-            {},
+            (("gen", "tick", 0, 0),),
             1,
         )
     )
@@ -372,22 +375,11 @@ def test_substitution_placements_are_lazy_in_the_ambient_wire_count():
     assert list(substitution._placements(4, 2, Deadline.after(2))) == list(
         permutations(range(4), 2)
     )
-    theory = Theory.from_json(
-        {
-            "wire_dimension": 1,
-            "generators": {"tick": {"type": [1, 1], "matrix": [[-1]]}},
-            "equations": [
-                {"id": "target", "lhs": {"gen": "tick"}, "rhs": {"id": 1}}
-            ],
-        }
-    )
     operations = list(
         substitution._operation_alphabet(
-            theory,
-            1_000_000,
-            frozenset({"tick"}),
-            {},
             1,
+            1_000_000,
+            (("gen", "tick", 1, 1),),
             Deadline.after(2),
         )
     )
@@ -428,7 +420,7 @@ def test_substitution_matrix_budget_is_configurable_and_nonfinite_is_rejected():
 
     assert blocked == []
     assert allowed
-    assert not substitution._projectively_equal(
+    assert not projectively_equal(
         np.asarray([[np.nan]]), np.asarray([[np.nan]])
     )
 
@@ -437,13 +429,18 @@ def test_projective_matrix_equality_does_not_collapse_small_matrices_to_zero():
     tiny_but_not_zero = np.full((2, 2), 0.75e-8, dtype=complex)
     zero = np.zeros((2, 2), dtype=complex)
 
-    assert not substitution._projectively_equal(tiny_but_not_zero, zero)
-    assert not substitution._projectively_equal(zero, tiny_but_not_zero)
-    assert substitution._projectively_equal(tiny_but_not_zero, 1j * tiny_but_not_zero)
+    assert not projectively_equal(tiny_but_not_zero, zero)
+    assert not projectively_equal(zero, tiny_but_not_zero)
+    assert projectively_equal(tiny_but_not_zero, 1j * tiny_but_not_zero)
 
     visible = tiny_but_not_zero.copy()
     visible[0, 0] = 2e-8
-    assert not substitution._projectively_equal(tiny_but_not_zero, visible)
+    assert not projectively_equal(tiny_but_not_zero, visible)
+
+    identity = np.eye(2, dtype=complex)
+    near_identity = identity.copy()
+    near_identity[0, 1] = substitution.PROJECTIVE_TOLERANCE / 2
+    assert projectively_equal(identity, near_identity)
 
 
 def test_substitution_budget_accounts_for_wires_hidden_inside_macros():

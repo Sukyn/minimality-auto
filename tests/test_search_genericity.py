@@ -81,6 +81,7 @@ def test_each_strategy_stops_at_its_own_bound(monkeypatch):
         {"max_amalgam_scalars": -1},
         {"max_amalgam_matrix_dimension": 0},
         {"max_spin_matrix_dimension": 0},
+        {"max_block_matrix_dimension": 0},
         {"max_depth": True},
     ],
 )

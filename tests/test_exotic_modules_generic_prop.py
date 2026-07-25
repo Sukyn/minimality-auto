@@ -7,7 +7,6 @@ from minimality_auto.core import (
     Circuit,
     Equation,
     Generator,
-    MacroDef,
     Signature,
     Theory,
     load_theory,
@@ -15,7 +14,6 @@ from minimality_auto.core import (
 from minimality_auto.search import Deadline, NotApplicable, search_theory
 from minimality_auto.separators import amalgam, spin
 from minimality_auto.separators.finite_field import instantiate, templates
-
 
 THEORY_PATH = (
     Path(__file__).parents[1] / "theories" / "realclifford-ch-simplified.json"
@@ -243,9 +241,7 @@ def test_fixed_arity_exotic_searches_reject_hidden_arity_changes(separator):
             ],
         }
     )
-    theory.macros["hidden grow"] = MacroDef(
-        "hidden grow", Circuit.generator("fresh", 0, 1)
-    )
+    theory.macros["hidden grow"] = Circuit.generator("fresh", 0, 1)
 
     with pytest.raises(NotApplicable, match="terms and macros"):
         list(
@@ -262,12 +258,10 @@ def _macro_wrapped_spin_theory() -> Theory:
     original = load_theory(THEORY_PATH)
     target = original.equation("19_n5")
     macros = dict(original.macros)
-    macros["arbitrary left wrapper"] = MacroDef("arbitrary left wrapper", target.lhs)
+    macros["arbitrary left wrapper"] = target.lhs
     right_parts = list(target.rhs.parts)
     right_parts.insert(1, Circuit.identity(5))
-    macros["arbitrary right wrapper"] = MacroDef(
-        "arbitrary right wrapper", Circuit.compose(right_parts)
-    )
+    macros["arbitrary right wrapper"] = Circuit.compose(right_parts)
     wrapped = Equation(
         "unrelated target name",
         Circuit.macro("arbitrary left wrapper", 5, 5),

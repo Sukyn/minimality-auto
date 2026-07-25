@@ -7,8 +7,7 @@ import pytest
 
 from minimality_auto.core import Circuit, Theory, load_theory
 from minimality_auto.search import Deadline, NotApplicable, search_theory
-from minimality_auto.separators import finite_model
-
+from minimality_auto.separators import finite_model, fixed_arity
 
 THEORY_DIR = Path(__file__).parents[1] / "theories"
 REAL_CH = THEORY_DIR / "realclifford-ch-simplified.json"
@@ -72,17 +71,6 @@ def test_generic_search_rediscovers_the_real_ch_witnesses():
     for witness in report.witnesses.values():
         assert set(witness.parameters) == {"arity", "degree", "interpretation"}
 
-
-def test_report_contains_the_actual_named_interpretation():
-    theory = load_theory(REAL_CH)
-    report = search_theory(
-        theory,
-        strategies=("finite_model",),
-        equation_ids={"15", "18"},
-        max_permutation_degree=2,
-        timeout=5,
-    )
-
     assert report.witnesses["15"].parameters["interpretation"] == {
         "generators": {
             "H": [0, 1],
@@ -109,9 +97,9 @@ def test_report_contains_the_actual_named_interpretation():
     }
 
 
-def test_rules_12_through_18_have_only_two_witnesses_through_degree_five():
+def test_remaining_rules_have_no_finite_model_through_degree_five():
     theory = load_theory(REAL_CH)
-    targets = {str(number) for number in range(12, 19)}
+    targets = {"12", "13", "14", "17"}
     report = search_theory(
         theory,
         strategies=("finite_model",),
@@ -120,15 +108,14 @@ def test_rules_12_through_18_have_only_two_witnesses_through_degree_five():
         timeout=10,
     )
 
-    assert set(report.witnesses) == {"15", "18"}
-    assert set(report.unresolved) == {"12", "13", "14", "16", "17"}
+    assert not report.witnesses
+    assert set(report.unresolved) == targets
     assert not report.timed_out
 
 
 def test_search_is_independent_of_generator_names_and_equation_ids():
-    pair = lambda left, right: {
-        "compose": [{"gen": left}, {"gen": right}] * 8
-    }
+    def pair(left, right):
+        return {"compose": [{"gen": left}, {"gen": right}] * 8}
     theory = Theory.from_json(
         {
             "name": "renamed_one_wire_fragment",
@@ -245,10 +232,10 @@ def test_structural_permutation_compiler_uses_the_core_convention():
     for index in range(degree - 1):
         value = list(range(degree))
         value[index], value[index + 1] = value[index + 1], value[index]
-        assignment[finite_model._swap(index)] = tuple(value)
+        assignment[fixed_arity.swap(index)] = tuple(value)
 
     for order in permutations(range(degree)):
-        word = finite_model._adjacent_word(order)
+        word = fixed_arity.adjacent_word(order)
         assert finite_model._evaluate(word, assignment, degree) == _inverse(order)
 
 
@@ -285,8 +272,8 @@ def test_three_wire_models_validate_every_ordered_axiom_embedding(target: str):
 def test_prop_validator_rejects_a_broken_braid_relation():
     identity = (0, 1, 2)
     assignment = {
-        finite_model._swap(0): (1, 0, 2),
-        finite_model._swap(1): identity,
+        fixed_arity.swap(0): (1, 0, 2),
+        fixed_arity.swap(1): identity,
     }
     with pytest.raises(ValueError, match="required relation"):
         finite_model._validate_prop_assignment(3, (), assignment, 3)
@@ -294,8 +281,8 @@ def test_prop_validator_rejects_a_broken_braid_relation():
 
 def test_prop_validator_rejects_noncentral_scalars():
     assignment = {
-        finite_model._generator("phase"): (1, 2, 0),
-        finite_model._generator("gate"): (1, 0, 2),
+        fixed_arity.generator("phase"): (1, 2, 0),
+        fixed_arity.generator("gate"): (1, 0, 2),
     }
     with pytest.raises(ValueError, match="required relation"):
         finite_model._validate_prop_assignment(
@@ -305,9 +292,9 @@ def test_prop_validator_rejects_noncentral_scalars():
 
 def test_prop_validator_rejects_broken_disjoint_interchange():
     assignment = {
-        finite_model._generator("left"): (1, 2, 0),
-        finite_model._generator("right"): (1, 0, 2),
-        finite_model._swap(0): (0, 1, 2),
+        fixed_arity.generator("left"): (1, 2, 0),
+        fixed_arity.generator("right"): (1, 0, 2),
+        fixed_arity.swap(0): (0, 1, 2),
     }
     with pytest.raises(ValueError, match="required relation"):
         finite_model._validate_prop_assignment(

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from minimality_auto.core import Circuit, MatrixSemantics, Signature
+from minimality_auto.core import Circuit, Signature
+from minimality_auto.matrix import MatrixSemantics
 
 
 def _block_swap(left: int, right: int) -> Circuit:

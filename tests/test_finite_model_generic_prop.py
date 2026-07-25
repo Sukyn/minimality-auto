@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from itertools import permutations, product
 import sys
+from itertools import permutations, product
 
 import pytest
 
-from minimality_auto.core import Circuit, Equation, MacroDef, Signature, Theory
+from minimality_auto.core import Circuit, Equation, Signature, Theory
 from minimality_auto.search import Deadline, NotApplicable, search_theory
-from minimality_auto.separators import finite_model
+from minimality_auto.separators import finite_model, fixed_arity
 
 
 def _compiled(term: Circuit, theory: Theory, arity: int):
     signature = {
         name: generator.inputs for name, generator in theory.signature.items()
     }
-    return finite_model._word(term, signature, arity)
+    return fixed_arity.compile_word(term, signature, arity)
 
 
 def test_every_small_prop_assignment_respects_naturality_and_interchange():
@@ -49,11 +49,11 @@ def test_every_small_prop_assignment_respects_naturality_and_interchange():
     degree = 3
     values = tuple(permutations(range(degree)))
     generators = (("left box", 1), ("right/box", 1))
-    constraints = finite_model._prop_constraints(2, generators)
+    constraints = fixed_arity.prop_constraints(2, generators)
     variables = (
-        finite_model._generator("left box"),
-        finite_model._generator("right/box"),
-        finite_model._swap(0),
+        fixed_arity.generator("left box"),
+        fixed_arity.generator("right/box"),
+        fixed_arity.swap(0),
     )
     valid = 0
     for assigned in product(values, repeat=len(variables)):
@@ -91,8 +91,8 @@ def test_scalar_centrality_holds_for_every_small_prop_assignment():
     degree = 3
     values = tuple(permutations(range(degree)))
     generators = (("scalar", 0), ("gate", 1))
-    constraints = finite_model._prop_constraints(1, generators)
-    variables = tuple(finite_model._generator(name) for name, _ in generators)
+    constraints = fixed_arity.prop_constraints(1, generators)
+    variables = tuple(fixed_arity.generator(name) for name, _ in generators)
     valid = 0
     for assigned in product(values, repeat=2):
         assignment = dict(zip(variables, assigned, strict=True))
@@ -180,11 +180,11 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
     degree = 3
     values = tuple(permutations(range(degree)))
     generators = (("scalar", 0), ("unary", 1), ("binary", 2))
-    variables = tuple(finite_model._generator(name) for name, _ in generators) + (
-        finite_model._swap(0),
-        finite_model._swap(1),
+    variables = tuple(fixed_arity.generator(name) for name, _ in generators) + (
+        fixed_arity.swap(0),
+        fixed_arity.swap(1),
     )
-    constraints = finite_model._prop_constraints(3, generators)
+    constraints = fixed_arity.prop_constraints(3, generators)
     valid = 0
     for assigned in product(values, repeat=len(variables)):
         assignment = dict(zip(variables, assigned, strict=True))
@@ -207,11 +207,11 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
             unary_wire = tuple(
                 wire for wire in range(3) if wire not in binary_wires
             )
-            binary_word = finite_model._placed(
-                finite_model._generator("binary"), binary_wires, 3
+            binary_word = fixed_arity.place(
+                fixed_arity.generator("binary"), binary_wires, 3
             )
-            unary_word = finite_model._placed(
-                finite_model._generator("unary"), unary_wire, 3
+            unary_word = fixed_arity.place(
+                fixed_arity.generator("unary"), unary_wire, 3
             )
             assert finite_model._evaluate(
                 binary_word + unary_word, assignment, degree
@@ -224,8 +224,8 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
 def test_structural_compilation_respects_composition_in_every_small_model():
     degree = 3
     values = tuple(permutations(range(degree)))
-    variables = (finite_model._swap(0), finite_model._swap(1))
-    constraints = finite_model._prop_constraints(3, ())
+    variables = (fixed_arity.swap(0), fixed_arity.swap(1))
+    constraints = fixed_arity.prop_constraints(3, ())
     orders = tuple(permutations(range(3)))
     valid = 0
     for assigned in product(values, repeat=2):
@@ -239,13 +239,13 @@ def test_structural_compilation_respects_composition_in_every_small_model():
         valid += 1
         for first, second in product(orders, repeat=2):
             composite = tuple(first[second[index]] for index in range(3))
-            word = finite_model._adjacent_word(first) + finite_model._adjacent_word(
+            word = fixed_arity.adjacent_word(first) + fixed_arity.adjacent_word(
                 second
             )
             assert finite_model._evaluate(
                 word, assignment, degree
             ) == finite_model._evaluate(
-                finite_model._adjacent_word(composite), assignment, degree
+                fixed_arity.adjacent_word(composite), assignment, degree
             )
     assert valid > 1
 
@@ -316,9 +316,7 @@ def test_hidden_arity_changing_macro_rejects_fixed_wire_search():
             ],
         }
     )
-    theory.macros["hidden grow"] = MacroDef(
-        "hidden grow", Circuit.generator("fresh", 0, 1)
-    )
+    theory.macros["hidden grow"] = Circuit.generator("fresh", 0, 1)
 
     with pytest.raises(NotApplicable, match="terms and macros"):
         next(
@@ -333,12 +331,12 @@ def test_hidden_arity_changing_macro_rejects_fixed_wire_search():
 
 def test_prop_helpers_reject_ill_scoped_inputs():
     with pytest.raises(ValueError, match="fixed-arity fragment"):
-        finite_model._prop_constraints(1, (("wide", 2),))
+        fixed_arity.prop_constraints(1, (("wide", 2),))
     with pytest.raises(ValueError, match="distinct positions"):
-        finite_model._placed(finite_model._generator("g"), (0, 0), 2)
+        fixed_arity.place(fixed_arity.generator("g"), (0, 0), 2)
 
-    constraint = finite_model._Constraint(
-        (finite_model._generator("missing"),), ()
+    constraint = fixed_arity.Constraint(
+        (fixed_arity.generator("missing"),), ()
     )
     with pytest.raises(ValueError, match="undeclared interpretation"):
         finite_model._validate_assignment((), (constraint,), {}, 2)
@@ -346,9 +344,9 @@ def test_prop_helpers_reject_ill_scoped_inputs():
 
 def test_solver_does_not_depend_on_python_recursion_depth():
     variables = tuple(
-        finite_model._generator(f"generic {index}") for index in range(220)
+        fixed_arity.generator(f"generic {index}") for index in range(220)
     )
-    constraint = finite_model._Constraint(variables, (), equal=False)
+    constraint = fixed_arity.Constraint(variables, (), equal=False)
     previous_limit = sys.getrecursionlimit()
     try:
         sys.setrecursionlimit(150)

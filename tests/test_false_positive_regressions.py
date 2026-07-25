@@ -5,8 +5,9 @@ import json
 import numpy as np
 import pytest
 
-from minimality_auto.core import MatrixSemantics, Theory
+from minimality_auto.core import Theory
 from minimality_auto.main import main
+from minimality_auto.matrix import MatrixSemantics
 from minimality_auto.search import search_theory
 
 

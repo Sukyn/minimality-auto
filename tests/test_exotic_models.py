@@ -13,20 +13,17 @@ from minimality_auto.core import (
     Generator,
     Signature,
     Theory,
-    evaluate_matrix,
     expand_macros,
     load_theory,
 )
 from minimality_auto.main import main
+from minimality_auto.matrix import evaluate_matrix
 from minimality_auto.search import (
     Deadline,
-    Separation,
-    _validate_direct_separation,
     relevant_equations,
     search_theory,
 )
 from minimality_auto.separators import amalgam
-
 
 THEORY_PATH = (
     Path(__file__).parents[1] / "theories" / "realclifford-ch-simplified.json"
@@ -60,8 +57,10 @@ def _rename_generators(raw: dict, renaming: dict[str, str]) -> dict:
         return result
 
     renamed = rename(deepcopy(raw))
-    for generator in renamed["generators"]:
-        generator["name"] = renaming[generator["name"]]
+    renamed["generators"] = {
+        renaming[name]: generator
+        for name, generator in renamed["generators"].items()
+    }
     return renamed
 
 
@@ -119,6 +118,7 @@ def test_amalgam_cli_separates_rule_11(capsys: pytest.CaptureFixture[str]):
 
     assert witness["strategy"] == "amalgam"
     assert witness["checked_equations"] == ["1", "2", "3", "5", "6", "7", "8", "10"]
+    assert witness["parameters"]["prime"] == 7
     assert set(witness["parameters"]["interpretation"]) == {"H", "Z", "CZ", "CH"}
     assert witness["parameters"]["structural_swaps"] == {"swap[0,1]": [1, 0]}
     assert "quotient_seed_matrix" in witness["parameters"]["interpretation"]["CH"]
@@ -127,7 +127,7 @@ def test_amalgam_cli_separates_rule_11(capsys: pytest.CaptureFixture[str]):
 
 def test_amalgam_does_not_depend_on_the_target_id(theory: Theory):
     target = theory.equation("11")
-    renamed = Equation("renamed_rule_11", target.lhs, target.rhs, target.metadata)
+    renamed = Equation("renamed_rule_11", target.lhs, target.rhs)
     renamed_theory = _with_equations(
         theory,
         tuple(renamed if equation.id == "11" else equation for equation in theory.equations),
@@ -194,7 +194,7 @@ def test_amalgam_discovers_roles_after_every_generator_is_renamed():
     }
 
 
-def test_amalgam_increases_the_prime_bound(theory: Theory):
+def test_amalgam_rejects_an_insufficient_prime_bound(theory: Theory):
     too_small = search_theory(
         theory,
         strategies=("amalgam",),
@@ -202,28 +202,16 @@ def test_amalgam_increases_the_prime_bound(theory: Theory):
         max_amalgam_prime=5,
         timeout=10,
     )
-    enough = search_theory(
-        theory,
-        strategies=("amalgam",),
-        equation_ids={"11"},
-        max_amalgam_prime=7,
-        timeout=30,
-    )
 
     assert too_small.unresolved == ("11",)
-    assert enough.witnesses["11"].parameters["prime"] == 7
 
 
 def test_unused_complex_generator_does_not_block_amalgam_search():
     raw = json.loads(THEORY_PATH.read_text(encoding="utf-8"))
-    raw["generators"].append(
-        {
-            "name": "unused",
-            "source": 1,
-            "target": 1,
-            "matrix": [[1, "i"], [0, 1]],
-        }
-    )
+    raw["generators"]["unused"] = {
+        "type": 1,
+        "matrix": [[1, "i"], [0, 1]],
+    }
     extended = Theory.from_json(raw)
 
     report = search_theory(
@@ -405,8 +393,13 @@ def test_spin_separates_every_materialized_high_arity_instance(theory: Theory):
     )
 
     assert set(report.witnesses) == targets
-    assert not report.unresolved
+    assert set(report.unresolved) == targets
     assert not report.timed_out
+    assert all(
+        not witness.certified
+        and witness.description.startswith("numerical ")
+        for witness in report.witnesses.values()
+    )
 
     for arity in range(5, 11):
         equation_id = f"19_n{arity}"
@@ -531,7 +524,8 @@ def test_spin_one_spare_wire_accepts_matrix_equal_aliases(theory: Theory):
 
     assert set(report.witnesses) == {target.id}
     assert retained.id in report.witnesses[target.id].checked_equations
-    assert not report.unresolved
+    assert report.unresolved == (target.id,)
+    assert not report.witnesses[target.id].certified
     assert not report.timed_out
 
 
@@ -567,7 +561,8 @@ def test_spin_normalizes_identity_factors_in_an_exact_reversal(theory: Theory):
     )
 
     assert set(report.witnesses) == {padded.id}
-    assert not report.unresolved
+    assert report.unresolved == (padded.id,)
+    assert not report.witnesses[padded.id].certified
     assert not report.timed_out
 
 
@@ -611,19 +606,3 @@ def test_spin_rejects_only_matrix_equal_nonidentical_factors(theory: Theory):
     assert not report.witnesses
     assert report.unresolved == (target.id,)
     assert not report.timed_out
-
-
-def test_direct_certificate_must_list_every_retained_equation(theory: Theory):
-    target = theory.equation("19_n5")
-    incomplete = Separation(
-        equation=target.id,
-        strategy="spin",
-        description="incomplete",
-        parameters={},
-        checked_equations=(),
-        lhs_value="u",
-        rhs_value="-u",
-    )
-
-    with pytest.raises(ValueError, match="did not check every retained equation"):
-        _validate_direct_separation(incomplete, theory, target, "spin")

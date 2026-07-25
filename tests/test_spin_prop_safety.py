@@ -17,9 +17,8 @@ from minimality_auto.core import (
     Theory,
     load_theory,
 )
-from minimality_auto.search import Deadline, NotApplicable
+from minimality_auto.search import Deadline, NotApplicable, search_theory
 from minimality_auto.separators import spin
-
 
 THEORY_PATH = (
     Path(__file__).parents[1] / "theories" / "realclifford-ch-simplified.json"
@@ -176,16 +175,16 @@ def test_one_spare_wire_accepts_composition_tensor_and_routing_equalities():
             spin._matrix(theory, equation.rhs),
         )
 
-    witnesses = list(
-        spin.candidates(
-            theory,
-            target,
-            bound=0,
-            deadline=Deadline.after(10),
-        )
+    report = search_theory(
+        theory,
+        strategies=("spin",),
+        equation_ids={target.id},
+        timeout=10,
     )
-    assert len(witnesses) == 1
-    assert {interchange.id, routed.id}.issubset(witnesses[0].checked_equations)
+    witness = report.witnesses[target.id]
+    assert {interchange.id, routed.id}.issubset(witness.checked_equations)
+    assert not witness.certified
+    assert witness.description.startswith("numerical ")
 
 
 def test_full_arity_positive_reversal_is_recorded_explicitly():
