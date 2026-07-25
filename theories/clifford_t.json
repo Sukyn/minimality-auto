@@ -1,39 +1,39 @@
 {
   "name": "Qubit Clifford+T (Figure 5)",
   "wire_dimension": 2,
-  "source": {"paper": "arXiv:2602.09874", "figure": 5, "minimality_scope": "up to 1 wire"},
-  "generators": [
-    {"name":"omega","inputs":0,"outputs":0,"matrix":[["0.7071067811865476+0.7071067811865475i"]]},
-    {"name":"H","inputs":1,"outputs":1,"matrix":[[0.7071067811865476,0.7071067811865476],[0.7071067811865476,-0.7071067811865476]]},
-    {"name":"T","inputs":1,"outputs":1,"matrix":{"diagonal":[1,"0.7071067811865476+0.7071067811865475i"]}},
-    {"name":"CNOT","inputs":2,"outputs":2,"matrix":[[1,0,0,0],[0,1,0,0],[0,0,0,1],[0,0,1,0]]}
-  ],
+  "source": {"paper":"arXiv:2602.09874","figure":5,"minimality_scope":"up to 1 wire"},
+  "generators": {
+    "omega": {"type":0,"matrix":[["0.7071067811865476+0.7071067811865475i"]]},
+    "H": {"type":1,"matrix":[[0.7071067811865476,0.7071067811865476],[0.7071067811865476,-0.7071067811865476]]},
+    "T": {"type":1,"matrix":{"diagonal":[1,"0.7071067811865476+0.7071067811865475i"]}},
+    "CNOT": {"type":2,"matrix":[[1,0,0,0],[0,1,0,0],[0,0,0,1],[0,0,1,0]]}
+  },
   "macros": {
-    "S":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]}]}},
-    "S_dagger":{"type":[1,1],"body":{"wires":1,"ops":[{"macro":"S","on":[0]},{"macro":"S","on":[0]},{"macro":"S","on":[0]}]}},
-    "Z":{"type":[1,1],"body":{"wires":1,"ops":[{"macro":"S","on":[0]},{"macro":"S","on":[0]}]}},
-    "X":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"H","on":[0]},{"macro":"Z","on":[0]},{"gen":"H","on":[0]}]}},
-    "T_dagger":{"type":[1,1],"body":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]}]}},
-    "CNOT_zero":{"type":[2,2],"body":{"wires":2,"ops":[{"macro":"X","on":[0]},{"gen":"CNOT","on":[0,1]},{"macro":"X","on":[0]}]}},
-    "CH":{"type":[2,2],"body":{"wires":2,"ops":[{"macro":"S","on":[1]},{"gen":"H","on":[1]},{"gen":"T","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"T_dagger","on":[1]},{"gen":"H","on":[1]},{"macro":"S_dagger","on":[1]}]}},
-    "CH_zero":{"type":[2,2],"body":{"wires":2,"ops":[{"macro":"X","on":[0]},{"macro":"CH","on":[0,1]},{"macro":"X","on":[0]}]}},
-    "CS":{"type":[2,2],"body":{"wires":2,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"T_dagger","on":[1]},{"gen":"CNOT","on":[0,1]}]}},
-    "CS_dagger":{"type":[2,2],"body":{"wires":2,"ops":[{"macro":"CS","on":[0,1]},{"macro":"CS","on":[0,1]},{"macro":"CS","on":[0,1]}]}},
-    "phase_T":{"type":[2,2],"body":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"T","on":[1]},{"gen":"CNOT","on":[0,1]}]}},
-    "phase_T_dagger":{"type":[2,2],"body":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"macro":"T_dagger","on":[1]},{"gen":"CNOT","on":[0,1]}]}},
-    "phase_T_zero":{"type":[2,2],"body":{"wires":2,"ops":[{"macro":"X","on":[0]},{"macro":"phase_T","on":[0,1]},{"macro":"X","on":[0]}]}}
+    "S": {"wires":1,"ops":[{"gen":"T"},{"gen":"T"}]},
+    "S_dagger": {"wires":1,"ops":[{"macro":"S"},{"macro":"S"},{"macro":"S"}]},
+    "Z": {"wires":1,"ops":[{"macro":"S"},{"macro":"S"}]},
+    "X": {"wires":1,"ops":[{"gen":"H"},{"macro":"Z"},{"gen":"H"}]},
+    "T_dagger": {"wires":1,"ops":[{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"}]},
+    "CNOT_zero": {"wires":2,"ops":[{"macro":"X","on":0},{"gen":"CNOT"},{"macro":"X","on":0}]},
+    "CH": {"wires":2,"ops":[{"macro":"S","on":1},{"gen":"H","on":1},{"gen":"T","on":1},{"gen":"CNOT"},{"macro":"T_dagger","on":1},{"gen":"H","on":1},{"macro":"S_dagger","on":1}]},
+    "CH_zero": {"wires":2,"ops":[{"macro":"X","on":0},{"macro":"CH"},{"macro":"X","on":0}]},
+    "CS": {"wires":2,"ops":[{"gen":"T","on":0},{"gen":"T","on":1},{"gen":"CNOT"},{"macro":"T_dagger","on":1},{"gen":"CNOT"}]},
+    "CS_dagger": {"wires":2,"ops":[{"macro":"CS"},{"macro":"CS"},{"macro":"CS"}]},
+    "phase_T": {"wires":2,"ops":[{"gen":"CNOT"},{"gen":"T","on":1},{"gen":"CNOT"}]},
+    "phase_T_dagger": {"wires":2,"ops":[{"gen":"CNOT"},{"macro":"T_dagger","on":1},{"gen":"CNOT"}]},
+    "phase_T_zero": {"wires":2,"ops":[{"macro":"X","on":0},{"macro":"phase_T"},{"macro":"X","on":0}]}
   },
   "equations": [
     {"id":"omega8","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0}},
-    {"id":"T8","lhs":{"wires":1,"ops":[{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]},{"gen":"T","on":[0]}]},"rhs":{"id":1}},
-    {"id":"H2","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"id":1}},
-    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"macro":"S","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"macro":"S_dagger","on":[0]},{"gen":"H","on":[0]},{"macro":"S_dagger","on":[0]}]}]}},
-    {"id":"TX","lhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"macro":"T_dagger","on":[0]},{"macro":"X","on":[0]}]}]},"rhs":{"wires":1,"ops":[{"macro":"X","on":[0]},{"gen":"T","on":[0]}]}},
-    {"id":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"T","on":[0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"T","on":[0]}]}},
-    {"id":"B","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT","on":[0,1]}]}},
-    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":[1]},{"gen":"CNOT","on":[0,1]},{"gen":"H","on":[1]}]},"rhs":{"wires":2,"ops":[{"macro":"S","on":[0]},{"macro":"S","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"S_dagger","on":[1]},{"gen":"CNOT","on":[0,1]}]}},
-    {"id":"CSH","lhs":{"wires":2,"ops":[{"macro":"CS","on":[0,1]},{"macro":"CH_zero","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"macro":"CH_zero","on":[0,1]},{"macro":"CS","on":[0,1]}]}},
-    {"id":"HT2","lhs":{"wires":2,"ops":[{"macro":"CH","on":[0,1]},{"gen":"T","on":[1]},{"macro":"CH_zero","on":[0,1]},{"macro":"T_dagger","on":[1]}]},"rhs":{"wires":2,"ops":[{"gen":"T","on":[1]},{"macro":"CH_zero","on":[0,1]},{"macro":"T_dagger","on":[1]},{"macro":"CH","on":[0,1]}]}},
-    {"id":"HTH","lhs":{"wires":2,"ops":[{"macro":"CH_zero","on":[0,1]},{"gen":"T","on":[1]},{"macro":"CH","on":[0,1]},{"macro":"CH_zero","on":[1,0]},{"gen":"T","on":[0]},{"macro":"CH","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"macro":"CH_zero","on":[1,0]},{"gen":"T","on":[0]},{"macro":"CH","on":[1,0]},{"macro":"CH_zero","on":[0,1]},{"gen":"T","on":[1]},{"macro":"CH","on":[0,1]}]}}
+    {"id":"T8","lhs":{"wires":1,"ops":[{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"},{"gen":"T"}]},"rhs":{"id":1}},
+    {"id":"H2","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"H"}]},"rhs":{"id":1}},
+    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"H"},{"macro":"S"},{"gen":"H"}]},"rhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"macro":"S_dagger"},{"gen":"H"},{"macro":"S_dagger"}]}]}},
+    {"id":"TX","lhs":{"tensor":[{"gen":"omega"},{"wires":1,"ops":[{"macro":"T_dagger"},{"macro":"X"}]}]},"rhs":{"wires":1,"ops":[{"macro":"X"},{"gen":"T"}]}},
+    {"id":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"T","on":0},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"T","on":0}]}},
+    {"id":"B","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT"}]}},
+    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":1},{"gen":"CNOT"},{"gen":"H","on":1}]},"rhs":{"wires":2,"ops":[{"macro":"S","on":0},{"macro":"S","on":1},{"gen":"CNOT"},{"macro":"S_dagger","on":1},{"gen":"CNOT"}]}},
+    {"id":"CSH","lhs":{"wires":2,"ops":[{"macro":"CS"},{"macro":"CH_zero"}]},"rhs":{"wires":2,"ops":[{"macro":"CH_zero"},{"macro":"CS"}]}},
+    {"id":"HT2","lhs":{"wires":2,"ops":[{"macro":"CH"},{"gen":"T","on":1},{"macro":"CH_zero"},{"macro":"T_dagger","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"T","on":1},{"macro":"CH_zero"},{"macro":"T_dagger","on":1},{"macro":"CH"}]}},
+    {"id":"HTH","lhs":{"wires":2,"ops":[{"macro":"CH_zero"},{"gen":"T","on":1},{"macro":"CH"},{"macro":"CH_zero","on":[1,0]},{"gen":"T","on":0},{"macro":"CH","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"macro":"CH_zero","on":[1,0]},{"gen":"T","on":0},{"macro":"CH","on":[1,0]},{"macro":"CH_zero"},{"gen":"T","on":1},{"macro":"CH"}]}}
   ]
 }

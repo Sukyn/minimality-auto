@@ -1,31 +1,31 @@
 {
   "name": "Qutrit Clifford (Figure 4)",
   "wire_dimension": 3,
-  "source": {"paper": "arXiv:2602.09874", "figure": 4, "minimality_scope": "up to 2 wires"},
-  "generators": [
-    {"name": "omega", "inputs": 0, "outputs": 0, "matrix": [["0.8660254037844386+0.5i"]]},
-    {"name": "H", "inputs": 1, "outputs": 1, "matrix": [[-0.5773502691896258, -0.5773502691896258, -0.5773502691896258], [-0.5773502691896258, "0.2886751345948129-0.5i", "0.2886751345948129+0.5i"], [-0.5773502691896258, "0.2886751345948129+0.5i", "0.2886751345948129-0.5i"]]},
-    {"name": "S", "inputs": 1, "outputs": 1, "matrix": {"diagonal": [1, 1, "-0.5+0.8660254037844386i"]}},
-    {"name": "CNOT", "inputs": 2, "outputs": 2, "matrix": [[1,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0],[0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0,0]]}
-  ],
+  "source": {"paper":"arXiv:2602.09874","figure":4,"minimality_scope":"up to 2 wires"},
+  "generators": {
+    "omega": {"type":0,"matrix":[["0.8660254037844386+0.5i"]]},
+    "H": {"type":1,"matrix":[[-0.5773502691896258,-0.5773502691896258,-0.5773502691896258],[-0.5773502691896258,"0.2886751345948129-0.5i","0.2886751345948129+0.5i"],[-0.5773502691896258,"0.2886751345948129+0.5i","0.2886751345948129-0.5i"]]},
+    "S": {"type":1,"matrix":{"diagonal":[1,1,"-0.5+0.8660254037844386i"]}},
+    "CNOT": {"type":2,"matrix":[[1,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0],[0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0,0]]}
+  },
   "macros": {
-    "K": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
-    "H3": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]}]}},
-    "S_dagger": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"S","on":[0]},{"gen":"S","on":[0]}]}},
-    "S_prime": {"type": [1,1], "body": {"wires": 1, "ops": [{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]}]}},
-    "Z": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"macro":"S_prime","on":[0]}]}},
-    "X": {"type": [1,1], "body": {"wires": 1, "ops": [{"gen":"H","on":[0]},{"macro":"Z","on":[0]},{"macro":"H3","on":[0]}]}}
+    "K": {"wires":1,"ops":[{"gen":"H"},{"gen":"H"}]},
+    "H3": {"wires":1,"ops":[{"gen":"H"},{"gen":"H"},{"gen":"H"}]},
+    "S_dagger": {"wires":1,"ops":[{"gen":"S"},{"gen":"S"}]},
+    "S_prime": {"wires":1,"ops":[{"macro":"K"},{"gen":"S"},{"macro":"K"}]},
+    "Z": {"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"macro":"S_prime"}]},
+    "X": {"wires":1,"ops":[{"gen":"H"},{"macro":"Z"},{"macro":"H3"}]}
   },
   "equations": [
     {"id":"omega12","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0}},
-    {"id":"H4","lhs":{"wires":1,"ops":[{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]},{"gen":"H","on":[0]}]},"rhs":{"id":1}},
-    {"id":"S3","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"id":1}},
-    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"gen":"H","on":[0]},{"gen":"S","on":[0]}]},"rhs":{"tensor":[{"wires":0,"ops":[{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]},{"gen":"omega","on":[]}]},{"wires":1,"ops":[{"macro":"H3","on":[0]},{"gen":"S","on":[0]},{"gen":"S","on":[0]},{"macro":"H3","on":[0]}]}]}},
-    {"id":"SSprime","lhs":{"wires":1,"ops":[{"gen":"S","on":[0]},{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]}]},"rhs":{"wires":1,"ops":[{"macro":"K","on":[0]},{"gen":"S","on":[0]},{"macro":"K","on":[0]},{"gen":"S","on":[0]}]}},
-    {"id":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"S","on":[0]},{"macro":"K","on":[1]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"macro":"K","on":[1]}]}},
-    {"id":"KC","lhs":{"wires":2,"ops":[{"macro":"K","on":[0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,1]},{"macro":"K","on":[0]}]}},
-    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":[1]},{"gen":"CNOT","on":[0,1]},{"macro":"H3","on":[1]}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":[0]},{"gen":"S","on":[1]},{"gen":"CNOT","on":[0,1]},{"gen":"S","on":[1]},{"gen":"S","on":[1]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,1]}]}},
-    {"id":"B","lhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT","on":[0,1]}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,0]},{"gen":"CNOT","on":[1,0]},{"macro":"K","on":[0]}]}},
+    {"id":"H4","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"H"},{"gen":"H"},{"gen":"H"}]},"rhs":{"id":1}},
+    {"id":"S3","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"gen":"S"}]},"rhs":{"id":1}},
+    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"H"},{"gen":"S"}]},"rhs":{"tensor":[{"wires":0,"ops":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},{"wires":1,"ops":[{"macro":"H3"},{"gen":"S"},{"gen":"S"},{"macro":"H3"}]}]}},
+    {"id":"SSprime","lhs":{"wires":1,"ops":[{"gen":"S"},{"macro":"K"},{"gen":"S"},{"macro":"K"}]},"rhs":{"wires":1,"ops":[{"macro":"K"},{"gen":"S"},{"macro":"K"},{"gen":"S"}]}},
+    {"id":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"S","on":0},{"macro":"K","on":1},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":0},{"macro":"K","on":1}]}},
+    {"id":"KC","lhs":{"wires":2,"ops":[{"macro":"K","on":0},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT"},{"macro":"K","on":0}]}},
+    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":1},{"gen":"CNOT"},{"macro":"H3","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":0},{"gen":"S","on":1},{"gen":"CNOT"},{"gen":"S","on":1},{"gen":"S","on":1},{"gen":"CNOT"},{"gen":"CNOT"}]}},
+    {"id":"B","lhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT","on":[1,0]},{"gen":"CNOT","on":[1,0]},{"macro":"K","on":0}]}},
     {"id":"I","lhs":{"wires":3,"ops":[{"gen":"CNOT","on":[1,2]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,2]}]},"rhs":{"wires":3,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,2]}]}}
   ]
 }
