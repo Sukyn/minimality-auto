@@ -6,6 +6,7 @@ import math
 import multiprocessing
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from .search import (
     STRATEGY_SPECS,
     SearchConfigurationError,
     SearchReport,
+    Separation,
     search_theory,
 )
 
@@ -135,16 +137,25 @@ def _selected_strategies(args: argparse.Namespace) -> tuple[str, ...]:
 
 def _search_worker(sender: Any, theory: Theory, options: dict[str, Any]) -> None:
     try:
-        sender.send((True, search_theory(theory, **options)))
+        report = search_theory(
+            theory,
+            **options,
+            on_witness=lambda witness: sender.send(("witness", witness)),
+        )
+        sender.send(("result", report))
     # The parent must receive internal failures instead of mistaking them for
     # a timeout. This process boundary is the one intentional broad catch.
     except Exception as error:  # noqa: BLE001
-        sender.send((False, error))
+        sender.send(("error", error))
     finally:
         sender.close()
 
 
-def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
+def _timed_search(
+    theory: Theory,
+    options: dict[str, Any],
+    on_witness: Callable[[Separation], None] | None = None,
+) -> SearchReport:
     """Run the CLI search in a process so its timeout can interrupt native code."""
 
     timeout = float(options["timeout"])
@@ -153,6 +164,9 @@ def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
     preflight_options = {**options, "timeout": 0.0}
     preflight = search_theory(theory, **preflight_options)
     if timeout == 0 or not preflight.timed_out:
+        if on_witness is not None:
+            for witness in preflight.witnesses.values():
+                on_witness(witness)
         return preflight
 
     context = multiprocessing.get_context("spawn")
@@ -165,21 +179,28 @@ def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
     start = time.monotonic()
     process.start()
     sender.close()
+    witnesses: dict[str, Separation] = {}
     try:
-        remaining = max(0.0, timeout - (time.monotonic() - start))
-        if receiver.poll(remaining):
+        while receiver.poll(max(0.0, timeout - (time.monotonic() - start))):
             try:
-                succeeded, value = receiver.recv()
+                event, value = receiver.recv()
             except EOFError as exc:
                 process.join()
                 raise PropError(
                     "search worker exited without returning a result "
                     f"(exit code {process.exitcode})"
                 ) from exc
+            if event == "witness":
+                witnesses[value.equation] = value
+                if on_witness is not None:
+                    on_witness(value)
+                continue
             process.join()
-            if succeeded:
+            if event == "result":
                 return value
-            raise value
+            if event == "error":
+                raise value
+            raise PropError(f"unknown search worker event: {event!r}")
     finally:
         if process.is_alive():
             process.terminate()
@@ -188,10 +209,22 @@ def _timed_search(theory: Theory, options: dict[str, Any]) -> SearchReport:
 
     return SearchReport(
         theory.name or "theory",
-        {},
-        preflight.unresolved,
+        witnesses,
+        tuple(
+            equation
+            for equation in preflight.unresolved
+            if equation not in witnesses or not witnesses[equation].certified
+        ),
         time.monotonic() - start,
         True,
+    )
+
+
+def _print_witness(witness: Separation) -> None:
+    label = "found" if witness.certified else "numerical"
+    print(
+        f"  [{label}] {witness.equation}: {witness.description}",
+        flush=True,
     )
 
 
@@ -223,10 +256,17 @@ def main(argv: list[str] | None = None) -> int:
             "max_spin_matrix_dimension": args.max_spin_matrix_dimension,
             "max_block_matrix_dimension": args.max_block_matrix_dimension,
         }
+        emitted: set[str] = set()
+
+        def emit(witness: Separation) -> None:
+            _print_witness(witness)
+            emitted.add(witness.equation)
+
+        on_witness = None if args.json_output else emit
         report = (
-            _timed_search(theory, options)
+            _timed_search(theory, options, on_witness)
             if hard_timeout
-            else search_theory(theory, **options)
+            else search_theory(theory, **options, on_witness=on_witness)
         )
     except (OSError, PropError, SearchConfigurationError) as error:
         parser.exit(2, f"error: {error}\n")
@@ -243,8 +283,8 @@ def main(argv: list[str] | None = None) -> int:
             summary += f", {numerical} numerical candidate(s)"
         print(summary)
         for equation, witness in report.witnesses.items():
-            label = "found" if witness.certified else "numerical"
-            print(f"  [{label}] {equation}: {witness.description}")
+            if equation not in emitted:
+                _print_witness(witness)
         for equation in report.unresolved:
             if equation not in report.witnesses:
                 print(f"  [open]  {equation}")

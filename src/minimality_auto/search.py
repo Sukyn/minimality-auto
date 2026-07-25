@@ -195,6 +195,7 @@ class StrategySpec:
     option_names: tuple[str, ...] = ()
     bound_padding: int = 0
     candidate_offset: int = 0
+    eager_bound: int = -1
 
     def maximum_bound(
         self,
@@ -228,14 +229,17 @@ class _ResolvedStrategy:
     max_bound: int
     bound_offset: int = 0
     options: Mapping[str, Any] = field(default_factory=dict)
+    eager_bound: int = -1
 
 
+# Small eager bounds keep a costly strategy from hiding simpler witnesses.
 STRATEGY_SPECS = (
     StrategySpec(
         "presence",
         ("--presence-checking", "--presence_checking", "--max-occurrence"),
         "run Boolean max/occurrence models",
         "active_primitive_count",
+        eager_bound=4,
     ),
     StrategySpec(
         "counting",
@@ -243,6 +247,7 @@ STRATEGY_SPECS = (
         "run modular counting models",
         "max_modulus",
         option_names=("max_modulus",),
+        eager_bound=2,
     ),
     StrategySpec(
         "block_normal_form",
@@ -250,6 +255,7 @@ STRATEGY_SPECS = (
         "run three-wire Brylinski block-normal-form evidence",
         3,
         option_names=("max_block_matrix_dimension",),
+        eager_bound=3,
     ),
     StrategySpec(
         "finite_model",
@@ -257,6 +263,7 @@ STRATEGY_SPECS = (
         "search small permutation interpretations",
         "max_permutation_degree",
         option_names=("max_permutation_degree",),
+        eager_bound=2,
     ),
     StrategySpec(
         "amalgam",
@@ -436,12 +443,31 @@ def _strategy_specs(
     for name in names:
         spec = _STRATEGY_BY_NAME[name]
         resolved[name] = _ResolvedStrategy(
-            spec.load_candidates(),
-            spec.maximum_bound(context, targets, options),
-            spec.candidate_offset,
-            {key: options[key] for key in spec.option_names},
+            candidates=spec.load_candidates(),
+            max_bound=spec.maximum_bound(context, targets, options),
+            bound_offset=spec.candidate_offset,
+            options={key: options[key] for key in spec.option_names},
+            eager_bound=spec.eager_bound,
         )
     return resolved
+
+
+def _search_schedule(
+    specs: Mapping[str, _ResolvedStrategy],
+) -> Iterator[tuple[int, str, _ResolvedStrategy]]:
+    """Try small cheap models before entering any opaque expensive search."""
+
+    scheduled: set[tuple[str, int]] = set()
+    for name, spec in specs.items():
+        for bound in range(min(spec.eager_bound, spec.max_bound) + 1):
+            scheduled.add((name, bound))
+            yield bound, name, spec
+
+    rounds = max((spec.max_bound for spec in specs.values()), default=-1)
+    for bound in range(rounds + 1):
+        for name, spec in specs.items():
+            if bound <= spec.max_bound and (name, bound) not in scheduled:
+                yield bound, name, spec
 
 
 def _integer_option(name: str, value: Any, minimum: int) -> int:
@@ -538,6 +564,7 @@ def search_theory(
     max_amalgam_matrix_dimension: int = 32,
     max_spin_matrix_dimension: int = 1024,
     max_block_matrix_dimension: int = 512,
+    on_witness: Callable[[Separation], None] | None = None,
 ) -> SearchReport:
     strategies = tuple(strategies)
     unknown = sorted(set(strategies) - set(DEFAULT_STRATEGIES))
@@ -632,39 +659,34 @@ def search_theory(
     witnesses: dict[str, Separation] = {}
     pending = set(target_ids)
     seen: dict[tuple[str, str], set[tuple[Hashable, bool]]] = {}
-    rounds = max((spec.max_bound for spec in specs.values()), default=0)
     timed_out = False
 
     try:
-        for bound in range(rounds + 1):
+        for bound, strategy_name, spec in _search_schedule(specs):
             deadline.check()
-            for strategy_name, spec in specs.items():
-                deadline.check()
-                if bound > spec.max_bound:
+            for target, target_id in zip(targets, target_ids, strict=True):
+                if target_id not in pending:
                     continue
-                for target, target_id in zip(targets, target_ids, strict=True):
-                    if target_id not in pending:
-                        continue
-                    bucket = seen.setdefault((target_id, strategy_name), set())
-                    for witness in _candidate_witnesses(
-                        theory,
-                        target,
-                        strategy_name,
-                        spec,
-                        bound,
-                        deadline,
-                        context,
-                        bucket,
+                bucket = seen.setdefault((target_id, strategy_name), set())
+                for witness in _candidate_witnesses(
+                    theory,
+                    target,
+                    strategy_name,
+                    spec,
+                    bound,
+                    deadline,
+                    context,
+                    bucket,
+                ):
+                    previous = witnesses.get(target_id)
+                    if previous is None or (
+                        not previous.certified and witness.certified
                     ):
-                        previous = witnesses.get(target_id)
-                        if previous is None or (
-                            not previous.certified and witness.certified
-                        ):
-                            witnesses[target_id] = witness
-                            if witness.certified:
-                                pending.discard(target_id)
-                if not pending:
-                    break
+                        witnesses[target_id] = witness
+                        if on_witness is not None:
+                            on_witness(witness)
+                        if witness.certified:
+                            pending.discard(target_id)
             if not pending:
                 break
     except SearchTimeout:

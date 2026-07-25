@@ -17,6 +17,12 @@ THEORY_PATHS = [
     THEORY_DIR / "quadratic_phase_d5.json",
     THEORY_DIR / "cubic_phase_d5.json",
 ]
+SIMPLIFIED_THEORY_PATHS = [
+    THEORY_DIR / "affine_simplified_d5.json",
+    THEORY_DIR / "linear_phase_simplified_d5.json",
+    THEORY_DIR / "quadratic_phase_simplified_d5.json",
+    THEORY_DIR / "cubic_phase_simplified_d5.json",
+]
 EXPECTED_GENERATORS = [
     {"X", "CX", "M_1", "M_2", "M_3", "M_4"},
     {"X", "CX", "M_1", "M_2", "M_3", "M_4", "omega", "Z"},
@@ -26,6 +32,24 @@ EXPECTED_GENERATORS = [
 EXPECTED_MACROS = [set(), set(), {"CZ"}, {"CZ", "CS", "SC", "CCZ"}]
 EXPECTED_COUNTS = [32, 40, 50, 74]
 EXPECTED_FIGURES = [[1], [1, 3], [1, 3, 4], [1, 3, 4, 5]]
+SIMPLIFIED_GENERATORS = [
+    {"X", "CX", "M_g"},
+    {"X", "CX", "M_g", "omega", "Z"},
+    {"X", "CX", "M_g", "omega", "Z", "S"},
+    {"X", "CX", "M_g", "omega", "Z", "S", "T"},
+]
+SIMPLIFIED_COUNTS = [9, 14, 21, 33]
+SIMPLIFIED_AFFINE_IDS = [
+    "A1",
+    "A3_order",
+    "A3_g",
+    "A4_g",
+    "A5_order",
+    "A5_g",
+    "A6",
+    "A7",
+    "A8",
+]
 
 
 def test_theories_are_standalone_nested_presentations():
@@ -47,6 +71,40 @@ def test_theories_are_standalone_nested_presentations():
         assert theory.source["version"] == 3
         assert theory.source["figures"] == figures
 
+    for parent, child in pairwise(theories):
+        assert child.equations[: len(parent.equations)] == parent.equations
+        for name, generator in parent.signature.items():
+            assert child.signature[name] == generator
+        for name, body in parent.macros.items():
+            assert child.macros[name] == body
+
+    assert all(
+        node.kind != "macro"
+        for theory in theories
+        for term in iter_theory_terms(theory)
+        for node in iter_circuit_nodes(term)
+    )
+
+
+def test_single_multiplier_theories_are_standalone_and_nested():
+    theories = [load_theory(path) for path in SIMPLIFIED_THEORY_PATHS]
+
+    for theory, generators, macros, count, figures in zip(
+        theories,
+        SIMPLIFIED_GENERATORS,
+        EXPECTED_MACROS,
+        SIMPLIFIED_COUNTS,
+        EXPECTED_FIGURES,
+        strict=True,
+    ):
+        assert theory.wire_dimension == DIMENSION
+        assert set(theory.signature) == generators
+        assert set(theory.macros) == macros
+        assert len(theory.equations) == count
+        assert theory.source["figures"] == figures
+        assert theory.source["multiplier"] == "g=2; M_(2^k)=M_g^k"
+
+    assert [equation.id for equation in theories[0].equations] == SIMPLIFIED_AFFINE_IDS
     for parent, child in pairwise(theories):
         assert child.equations[: len(parent.equations)] == parent.equations
         for name, generator in parent.signature.items():
@@ -108,6 +166,19 @@ def test_primitive_matrices_use_the_papers_basis_actions():
         np.testing.assert_allclose(signature[name].matrix, expected)
 
 
+def test_single_multiplier_powers_recover_every_multiplier():
+    full = load_theory(THEORY_PATHS[-1]).signature
+    simplified = load_theory(SIMPLIFIED_THEORY_PATHS[-1]).signature
+    multiplier = np.asarray(simplified["M_g"].matrix)
+    powers = {1: 0, 2: 1, 4: 2, 3: 3}
+
+    for value, exponent in powers.items():
+        np.testing.assert_array_equal(
+            np.linalg.matrix_power(multiplier, exponent),
+            full[f"M_{value}"].matrix,
+        )
+
+
 @cache
 def _action(circuit: Circuit, basis: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
     if circuit.kind == "id":
@@ -123,6 +194,8 @@ def _action(circuit: Circuit, basis: tuple[int, ...]) -> tuple[tuple[int, ...], 
             return ((basis[0] + 1) % DIMENSION,), 0
         if name == "CX":
             return (basis[0], (basis[0] + basis[1]) % DIMENSION), 0
+        if name == "M_g":
+            return (2 * basis[0] % DIMENSION,), 0
         if name.startswith("M_"):
             return (int(name[2:]) * basis[0] % DIMENSION,), 0
         if name == "Z":
@@ -165,9 +238,9 @@ def test_derived_shortcuts_have_the_declared_phase_polynomials():
             assert _action(theory.macros[name], basis) == (basis, phase(basis) % DIMENSION)
 
 
-def test_every_instantiated_equation_is_exact_on_the_computational_basis():
-    theory = load_theory(THEORY_PATHS[-1])
-
-    for equation in theory.equations:
-        for basis in product(range(DIMENSION), repeat=equation.lhs.inputs):
-            assert _action(equation.lhs, basis) == _action(equation.rhs, basis), equation.id
+def test_every_equation_is_exact_on_the_computational_basis():
+    for path in (THEORY_PATHS[-1], SIMPLIFIED_THEORY_PATHS[-1]):
+        theory = load_theory(path)
+        for equation in theory.equations:
+            for basis in product(range(DIMENSION), repeat=equation.lhs.inputs):
+                assert _action(equation.lhs, basis) == _action(equation.rhs, basis), equation.id

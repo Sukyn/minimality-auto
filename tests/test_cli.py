@@ -36,6 +36,17 @@ def test_presence_cli_aliases(tmp_path, capsys, flag):
     assert "[found] drop" in capsys.readouterr().out
 
 
+def test_cli_prints_a_witness_before_the_final_summary(tmp_path, capsys):
+    path = tmp_path / "theory.json"
+    _write_theory(path)
+
+    assert main([str(path), "--presence-checking", "--timeout", "2"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "[found] drop" in lines[0]
+    assert "separator(s) found" in lines[1]
+    assert sum("[found] drop" in line for line in lines) == 1
+
+
 def test_cli_json_output(tmp_path, capsys):
     path = tmp_path / "theory.json"
     path.write_text(
@@ -158,6 +169,38 @@ def test_real_cli_enforces_a_hard_timeout(tmp_path):
 
     assert result.returncode == 124
     assert "(timeout)" in result.stdout
+
+
+def test_real_cli_streams_from_the_hard_timeout_worker(tmp_path):
+    path = tmp_path / "theory.json"
+    _write_theory(path)
+    root = Path(__file__).parents[1]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(root / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "minimality_auto",
+            str(path),
+            "--presence-checking",
+            "--timeout",
+            "2",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    lines = result.stdout.splitlines()
+    assert "[found] drop" in lines[0]
+    assert "separator(s) found" in lines[1]
+    assert sum("[found] drop" in line for line in lines) == 1
 
 
 def test_hard_timeout_reports_worker_exit_without_a_result(monkeypatch):

@@ -10,6 +10,7 @@ from minimality_auto.search import (
     Deadline,
     DirectEvidence,
     SearchTimeout,
+    Separation,
     search_theory,
     verify,
 )
@@ -416,3 +417,39 @@ def test_numerical_candidate_is_not_a_proof(monkeypatch):
     )
     assert not report.witnesses["drop_a"].certified
     assert report.unresolved == ("drop_a",)
+
+
+def test_search_reports_witnesses_as_they_are_found():
+    streamed: list[Separation] = []
+    report = search_theory(
+        _presence_theory(),
+        strategies=("presence",),
+        equation_ids={"drop_a"},
+        timeout=2,
+        on_witness=streamed.append,
+    )
+
+    assert streamed == [report.witnesses["drop_a"]]
+
+
+def test_search_schedule_reaches_cheap_bounds_before_expensive_strategies():
+    def candidates(*args, **kwargs):
+        del args, kwargs
+        return iter(())
+
+    specs = {
+        "presence": search_module._ResolvedStrategy(
+            candidates,
+            max_bound=6,
+            eager_bound=4,
+        ),
+        "amalgam": search_module._ResolvedStrategy(candidates, max_bound=1),
+    }
+    schedule = [
+        (bound, name)
+        for bound, name, _spec in search_module._search_schedule(specs)
+    ]
+
+    assert schedule[:5] == [(bound, "presence") for bound in range(5)]
+    assert schedule.index((4, "presence")) < schedule.index((1, "amalgam"))
+    assert len(schedule) == len(set(schedule))
