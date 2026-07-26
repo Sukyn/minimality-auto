@@ -43,6 +43,18 @@ def _candidate(theory: Theory, target: str, degree: int):
     )
 
 
+def _validate_prop_assignment(arity, generators, assignment, degree):
+    variables = tuple(fixed_arity.generator(name) for name, _ in generators) + tuple(
+        fixed_arity.swap(index) for index in range(arity - 1)
+    )
+    finite_model._validate_assignment(
+        variables,
+        fixed_arity.prop_constraints(arity, generators),
+        assignment,
+        degree,
+    )
+
+
 def test_generic_search_rediscovers_the_real_ch_witnesses():
     theory = load_theory(REAL_CH)
     expected = {"1", "2", "3", "5", "6", "7", "8", "10", "15", "18"}
@@ -276,7 +288,7 @@ def test_prop_validator_rejects_a_broken_braid_relation():
         fixed_arity.swap(1): identity,
     }
     with pytest.raises(ValueError, match="required relation"):
-        finite_model._validate_prop_assignment(3, (), assignment, 3)
+        _validate_prop_assignment(3, (), assignment, 3)
 
 
 def test_prop_validator_rejects_noncentral_scalars():
@@ -285,9 +297,7 @@ def test_prop_validator_rejects_noncentral_scalars():
         fixed_arity.generator("gate"): (1, 0, 2),
     }
     with pytest.raises(ValueError, match="required relation"):
-        finite_model._validate_prop_assignment(
-            1, (("phase", 0), ("gate", 1)), assignment, 3
-        )
+        _validate_prop_assignment(1, (("phase", 0), ("gate", 1)), assignment, 3)
 
 
 def test_prop_validator_rejects_broken_disjoint_interchange():
@@ -297,9 +307,7 @@ def test_prop_validator_rejects_broken_disjoint_interchange():
         fixed_arity.swap(0): (0, 1, 2),
     }
     with pytest.raises(ValueError, match="required relation"):
-        finite_model._validate_prop_assignment(
-            2, (("left", 1), ("right", 1)), assignment, 3
-        )
+        _validate_prop_assignment(2, (("left", 1), ("right", 1)), assignment, 3)
 
 
 def test_models_reject_terms_above_their_fixed_arity():

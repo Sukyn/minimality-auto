@@ -7,10 +7,10 @@ import pytest
 
 from minimality_auto.core import (
     Circuit,
+    analyze_circuit,
     iter_circuit_nodes,
     iter_theory_terms,
     load_theory,
-    primitive_occurrences,
 )
 from minimality_auto.matrix import evaluate_matrix
 from minimality_auto.search import search_theory
@@ -63,9 +63,10 @@ def test_rule_inventory_and_shortcuts_are_explicit():
         "CX",
         "CX_inv",
     }
+    signature_names = set(theory.signature)
     for equation in theory.equations:
-        assert set(primitive_occurrences(equation.lhs)) <= set(theory.signature)
-        assert set(primitive_occurrences(equation.rhs)) <= set(theory.signature)
+        for term in (equation.lhs, equation.rhs):
+            assert dict(analyze_circuit(term).occurrences).keys() <= signature_names
     assert all(
         node.kind != "macro"
         for term in iter_theory_terms(theory)
@@ -120,7 +121,7 @@ def test_derived_gate_orientations_match_the_diagrams(theory_path: Path):
 def test_swap_decomposition_has_the_lambda_squared_phase(theory_path: Path):
     theory = load_theory(theory_path)
     equation = theory.equation("SWAP-decomp")
-    counts = primitive_occurrences(equation.rhs)
+    counts = analyze_circuit(equation.rhs).occurrence_counter()
 
     assert equation.lhs == Circuit.perm((1, 0))
     assert counts["H"] == 6

@@ -91,8 +91,8 @@ def test_generalized_sum_i_is_separated_in_higher_dimensions(dimension):
     assert not report.timed_out
     witness = report.witnesses["I"]
     assert witness.strategy == "block_normal_form"
-    assert not witness.certified
-    assert witness.description.startswith("numerical ")
+    assert witness.certified
+    assert witness.description.startswith("exact ")
     assert witness.lhs_value["block_count"] == 5
     assert witness.rhs_value["block_count"] == 3
     assert [block["support"] for block in witness.lhs_value["blocks"]] == [
@@ -897,20 +897,20 @@ def test_arity_changing_signature_is_rejected_even_when_unused():
     assert report.unresolved == ("I",)
 
 
-def test_block_matrix_dimension_bound_is_enforced():
+def test_block_exact_state_bound_is_enforced():
     theory = _sum_theory(5)
     too_small = search_theory(
         theory,
         strategies=("block_normal_form",),
         equation_ids={"I"},
-        max_block_matrix_dimension=124,
+        max_block_exact_states=124,
         timeout=10,
     )
     enough = search_theory(
         theory,
         strategies=("block_normal_form",),
         equation_ids={"I"},
-        max_block_matrix_dimension=125,
+        max_block_exact_states=125,
         timeout=10,
     )
 

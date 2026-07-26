@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,6 @@ from minimality_auto.main import main
 from minimality_auto.matrix import evaluate_matrix
 from minimality_auto.search import (
     Deadline,
-    relevant_equations,
     search_theory,
 )
 from minimality_auto.separators import amalgam
@@ -35,14 +35,7 @@ def theory() -> Theory:
 
 
 def _with_equations(theory: Theory, equations: tuple[Equation, ...]) -> Theory:
-    return Theory(
-        signature=theory.signature,
-        equations=equations,
-        macros=dict(theory.macros),
-        name=theory.name,
-        wire_dimension=theory.wire_dimension,
-        source=theory.source,
-    )
+    return replace(theory, equations=equations)
 
 
 def _rename_generators(raw: dict, renaming: dict[str, str]) -> dict:
@@ -404,7 +397,8 @@ def test_spin_separates_every_materialized_high_arity_instance(theory: Theory):
         witness = report.witnesses[equation_id]
         expected_checked = tuple(
             equation.id
-            for equation in relevant_equations(theory, theory.equation(equation_id))
+            for equation in theory.equations
+            if equation.id != equation_id and equation.arity <= arity
         )
         assert witness.checked_equations == expected_checked
         assert witness.parameters["minus_dimensions"] == [1 << (arity - 1), 2]
@@ -504,13 +498,10 @@ def test_spin_one_spare_wire_accepts_matrix_equal_aliases(theory: Theory):
         for equation in theory.equations
         if not equation.id.startswith("19_n")
     )
-    adversarial = Theory(
-        signature,
-        (*ordinary, retained, target),
-        theory.macros,
-        theory.name,
-        theory.wire_dimension,
-        theory.source,
+    adversarial = replace(
+        theory,
+        signature=signature,
+        equations=(*ordinary, retained, target),
     )
 
     _assert_matrix_sound(adversarial, retained)
@@ -586,13 +577,10 @@ def test_spin_rejects_only_matrix_equal_nonidentical_factors(theory: Theory):
         for equation in theory.equations
         if equation.id not in {"19_n5", "19_n6"}
     )
-    matrix_only_theory = Theory(
-        signature,
-        (*reduced, target),
-        theory.macros,
-        theory.name,
-        theory.wire_dimension,
-        theory.source,
+    matrix_only_theory = replace(
+        theory,
+        signature=signature,
+        equations=(*reduced, target),
     )
 
     _assert_matrix_sound(matrix_only_theory, target)

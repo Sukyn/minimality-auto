@@ -4,6 +4,7 @@ These examples are deliberately ordinary PROP equalities.  A Spin lift that
 ignored the ambient-wire guards would incorrectly claim to separate them.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -89,12 +90,10 @@ def _with_extra_rules(
     generators: tuple[Generator, ...],
     equations: tuple[Equation, ...],
 ) -> Theory:
-    return Theory(
-        Signature((*theory.signature.values(), *generators)),
-        (*theory.equations, *equations),
-        dict(theory.macros),
-        theory.name,
-        theory.wire_dimension,
+    return replace(
+        theory,
+        signature=Signature((*theory.signature.values(), *generators)),
+        equations=(*theory.equations, *equations),
     )
 
 

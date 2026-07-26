@@ -95,7 +95,7 @@ def test_central_verifier_rejects_model_breaking_another_axiom():
     model = CandidateModel(
         description="deliberately bad",
         parameters={},
-        evaluator=lambda term: term in (target.lhs, commute_lhs),
+        evaluate=lambda term: term in (target.lhs, commute_lhs),
     )
     assert (
         verify(model, theory, target, Deadline.after(1), strategy="test") is None
@@ -120,7 +120,7 @@ def test_arity_changing_signature_disables_the_arity_shortcut():
     model = CandidateModel(
         description="breaks the higher-arity axiom",
         parameters={},
-        evaluator=lambda term: term.kind != "id",
+        evaluate=lambda term: term.kind != "id",
     )
     assert (
         verify(model, theory, target, Deadline.after(1), strategy="test") is None
@@ -142,7 +142,7 @@ def test_verifier_checks_the_deadline_after_each_model_operation():
     model = CandidateModel(
         description="deadline probe",
         parameters={},
-        evaluator=lambda term: evaluated.append(term) or 0,
+        evaluate=lambda term: evaluated.append(term) or 0,
     )
 
     with pytest.raises(SearchTimeout):

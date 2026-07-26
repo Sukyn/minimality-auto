@@ -14,9 +14,7 @@ def _theory() -> Theory:
     return Theory.from_json(
         {
             "generators": {"g": 1},
-            "equations": [
-                {"id": "target", "lhs": {"gen": "g"}, "rhs": {"id": 1}}
-            ],
+            "equations": [{"id": "target", "lhs": {"gen": "g"}, "rhs": {"id": 1}}],
         }
     )
 
@@ -75,6 +73,8 @@ def test_each_strategy_stops_at_its_own_bound(monkeypatch):
         {"max_depth": -1},
         {"max_substitution_matrix_entries": 0},
         {"max_permutation_degree": 1},
+        {"max_affine_lift_prime": 1},
+        {"max_affine_lift_dimension": 0},
         {"max_amalgam_prime": 1},
         {"max_amalgam_order": 0},
         {"max_amalgam_bridge_generators": 0},
@@ -82,12 +82,18 @@ def test_each_strategy_stops_at_its_own_bound(monkeypatch):
         {"max_amalgam_matrix_dimension": 0},
         {"max_spin_matrix_dimension": 0},
         {"max_block_matrix_dimension": 0},
+        {"max_block_exact_states": 0},
         {"max_depth": True},
     ],
 )
 def test_programmatic_search_rejects_invalid_resource_bounds(option):
     with pytest.raises(ValueError):
         search_theory(_theory(), strategies=("presence",), **option)
+
+
+def test_programmatic_search_rejects_unknown_resource_limits():
+    with pytest.raises(ValueError, match="unknown search limit"):
+        search_theory(_theory(), max_typo=1)
 
 
 def test_report_serialization_recurses_through_numpy_and_complex_values():
