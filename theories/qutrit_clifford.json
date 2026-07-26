@@ -9,23 +9,23 @@
     "CNOT": {"type":2,"matrix":{"permutation":[0,1,2,4,5,3,8,6,7]}}
   },
   "macros": {
-    "K": {"wires":1,"ops":[{"gen":"H"},{"gen":"H"}]},
-    "H3": {"wires":1,"ops":[{"gen":"H"},{"gen":"H"},{"gen":"H"}]},
-    "S_dagger": {"wires":1,"ops":[{"gen":"S"},{"gen":"S"}]},
+    "K": {"gen":"H","repeat":2},
+    "H3": {"gen":"H","repeat":3},
+    "S_dagger": {"gen":"S","repeat":2},
     "S_prime": {"wires":1,"ops":[{"macro":"K"},{"gen":"S"},{"macro":"K"}]},
-    "Z": {"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"macro":"S_prime"}]},
+    "Z": {"wires":1,"ops":[{"gen":"S","repeat":2},{"macro":"S_prime"}]},
     "X": {"wires":1,"ops":[{"gen":"H"},{"macro":"Z"},{"macro":"H3"}]}
   },
   "equations": [
-    {"id":"omega12","lhs":{"tensor":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0}},
-    {"id":"H4","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"H"},{"gen":"H"},{"gen":"H"}]},"rhs":{"id":1}},
-    {"id":"S3","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"gen":"S"}]},"rhs":{"id":1}},
-    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"H"},{"gen":"S"}]},"rhs":{"tensor":[{"wires":0,"ops":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},{"wires":1,"ops":[{"macro":"H3"},{"gen":"S"},{"gen":"S"},{"macro":"H3"}]}]}},
+    {"id":"omega12","lhs":{"gen":"omega","repeat":12},"rhs":{"id":0}},
+    {"id":"H4","lhs":{"gen":"H","repeat":4},"rhs":{"id":1}},
+    {"id":"S3","lhs":{"gen":"S","repeat":3},"rhs":{"id":1}},
+    {"id":"E","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"H"},{"gen":"S"}]},"rhs":{"tensor":[{"gen":"omega","repeat":7},{"wires":1,"ops":[{"macro":"H3"},{"gen":"S","repeat":2},{"macro":"H3"}]}]}},
     {"id":"SSprime","lhs":{"wires":1,"ops":[{"gen":"S"},{"macro":"K"},{"gen":"S"},{"macro":"K"}]},"rhs":{"wires":1,"ops":[{"macro":"K"},{"gen":"S"},{"macro":"K"},{"gen":"S"}]}},
     {"id":"CPh","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"S","on":0},{"macro":"K","on":1},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":0},{"macro":"K","on":1}]}},
-    {"id":"KC","lhs":{"wires":2,"ops":[{"macro":"K","on":0},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT"},{"macro":"K","on":0}]}},
-    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":1},{"gen":"CNOT"},{"macro":"H3","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":0},{"gen":"S","on":1},{"gen":"CNOT"},{"gen":"S","on":1},{"gen":"S","on":1},{"gen":"CNOT"},{"gen":"CNOT"}]}},
-    {"id":"B","lhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT","on":[1,0]},{"gen":"CNOT","on":[1,0]},{"macro":"K","on":0}]}},
+    {"id":"KC","lhs":{"wires":2,"ops":[{"macro":"K","on":0},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","repeat":2},{"macro":"K","on":0}]}},
+    {"id":"CZ","lhs":{"wires":2,"ops":[{"gen":"H","on":1},{"gen":"CNOT"},{"macro":"H3","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"S","on":0},{"gen":"S","on":1},{"gen":"CNOT"},{"gen":"S","on":1,"repeat":2},{"gen":"CNOT","repeat":2}]}},
+    {"id":"B","lhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT"}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT","on":[1,0],"repeat":2},{"macro":"K","on":0}]}},
     {"id":"I","lhs":{"wires":3,"ops":[{"gen":"CNOT","on":[1,2]},{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[0,2]}]},"rhs":{"wires":3,"ops":[{"gen":"CNOT","on":[0,1]},{"gen":"CNOT","on":[1,2]}]}}
   ]
 }

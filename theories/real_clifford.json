@@ -12,11 +12,11 @@
     "X": {"wires":1,"ops":[{"gen":"H"},{"gen":"Z"},{"gen":"H"}]}
   },
   "equations": [
-    {"id":"minus2","lhs":{"tensor":[{"gen":"minus"},{"gen":"minus"}]},"rhs":{"id":0}},
-    {"id":"H2","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"H"}]},"rhs":{"id":1}},
-    {"id":"Z2","lhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"Z"}]},"rhs":{"id":1}},
+    {"id":"minus2","lhs":{"gen":"minus","repeat":2},"rhs":{"id":0}},
+    {"id":"H2","lhs":{"gen":"H","repeat":2},"rhs":{"id":1}},
+    {"id":"Z2","lhs":{"gen":"Z","repeat":2},"rhs":{"id":1}},
     {"id":"F","lhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"}]},"rhs":{"tensor":[{"gen":"minus"},{"wires":1,"ops":[{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"}]}]}},
-    {"id":"CX2","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT"}]},"rhs":{"id":2}},
+    {"id":"CX2","lhs":{"gen":"CNOT","repeat":2},"rhs":{"id":2}},
     {"id":"B","lhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"CNOT","on":[1,0]}]},"rhs":{"wires":2,"ops":[{"perm":[1,0]},{"gen":"CNOT"}]}},
     {"id":"ZC","lhs":{"wires":2,"ops":[{"gen":"Z","on":1},{"gen":"CNOT"},{"gen":"Z","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT"},{"gen":"Z","on":0}]}},
     {"id":"CZr","lhs":{"wires":2,"ops":[{"gen":"H","on":0},{"gen":"H","on":1},{"gen":"CNOT"},{"gen":"H","on":0},{"gen":"H","on":1}]},"rhs":{"wires":2,"ops":[{"gen":"CNOT","on":[1,0]}]}},

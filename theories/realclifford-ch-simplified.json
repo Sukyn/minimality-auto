@@ -1,7 +1,7 @@
 {
   "name": "Real-Clifford+CH (Figure 4)",
   "wire_dimension": 2,
-  "source": "https://arxiv.org/abs/2602.06644",
+  "source": {"paper":"https://arxiv.org/abs/2602.06644"},
   "generators": {
     "H": {"type":1,"matrix":[[0.7071067811865476,0.7071067811865476],[0.7071067811865476,-0.7071067811865476]]},
     "Z": {"type":1,"matrix":{"diagonal":[1,-1]}},
@@ -28,10 +28,10 @@
     "MCZ_pad_10": {"wires":10,"ops":[{"macro":"MCZX_2","on":[7,8,9]},{"macro":"MCZ_pad_9","on":[0,1,2,3,4,5,6,9,8]},{"macro":"MCXZ_2","on":[7,8,9]},{"macro":"MCZ_pad_9","on":[0,1,2,3,4,5,6,9,8]}]}
   },
   "equations": [
-    {"id":"1","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"H"}]},"rhs":{"id":1}},
-    {"id":"2","lhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"Z"}]},"rhs":{"id":1}},
+    {"id":"1","lhs":{"gen":"H","repeat":2},"rhs":{"id":1}},
+    {"id":"2","lhs":{"gen":"Z","repeat":2},"rhs":{"id":1}},
     {"id":"3","lhs":{"wires":1,"ops":[{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"},{"gen":"H"},{"gen":"Z"}]},"rhs":{"id":1}},
-    {"id":"5","lhs":{"wires":2,"ops":[{"gen":"CH"},{"gen":"CH"}]},"rhs":{"id":2}},
+    {"id":"5","lhs":{"gen":"CH","repeat":2},"rhs":{"id":2}},
     {"id":"6","lhs":{"wires":2,"ops":[{"gen":"CZ"},{"macro":"CZ_zero"}]},"rhs":{"wires":2,"ops":[{"gen":"Z","on":1}]}},
     {"id":"7","lhs":{"wires":2,"ops":[{"gen":"CH"},{"macro":"CH_zero"}]},"rhs":{"wires":2,"ops":[{"gen":"H","on":1}]}},
     {"id":"8","lhs":{"perm":[1,0]},"rhs":{"wires":2,"ops":[{"gen":"CZ"},{"gen":"H","on":0},{"gen":"H","on":1},{"gen":"CZ"},{"gen":"H","on":0},{"gen":"H","on":1},{"gen":"CZ"},{"gen":"H","on":0},{"gen":"H","on":1}]}},

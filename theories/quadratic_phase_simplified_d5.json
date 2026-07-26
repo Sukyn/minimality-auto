@@ -11,26 +11,26 @@
     "S": {"type":1,"matrix":{"diagonal":[1,1,"0.3090169943749475+0.9510565162951535i","-0.8090169943749475-0.587785252292473i","0.3090169943749475+0.9510565162951535i"]}}
   },
   "macros": {
-    "CZ": {"wires":2,"ops":[{"gen":"CX"},{"gen":"S","on":1},{"gen":"CX"},{"gen":"CX"},{"gen":"CX"},{"gen":"CX"},{"gen":"S","on":0},{"gen":"S","on":0},{"gen":"S","on":0},{"gen":"S","on":0},{"gen":"S","on":1},{"gen":"S","on":1},{"gen":"S","on":1},{"gen":"S","on":1}]}
+    "CZ": {"wires":2,"ops":[{"gen":"CX"},{"gen":"S","on":1},{"gen":"CX","repeat":4},{"gen":"S","on":0,"repeat":4},{"gen":"S","on":1,"repeat":4}]}
   },
   "equations": [
-    {"id":"A1","lhs":{"wires":1,"ops":[{"gen":"M_g"},{"gen":"M_g"},{"gen":"M_g"},{"gen":"M_g"}]},"rhs":{"id":1}},
-    {"id":"A3_order","lhs":{"wires":1,"ops":[{"gen":"X"},{"gen":"X"},{"gen":"X"},{"gen":"X"},{"gen":"X"}]},"rhs":{"id":1}},
-    {"id":"A3_g","lhs":{"wires":1,"ops":[{"gen":"X"},{"gen":"X"},{"gen":"X"},{"gen":"X"},{"gen":"M_g"},{"gen":"X"},{"gen":"X"}]},"rhs":{"gen":"M_g"}},
-    {"id":"A4_A6_merged","lhs":{"wires":2,"ops":[{"gen":"M_g","on":0},{"gen":"X","on":0},{"gen":"CX"}]},"rhs":{"wires":2,"ops":[{"gen":"CX"},{"gen":"CX"},{"gen":"M_g","on":0},{"gen":"X","on":0},{"gen":"X","on":1}]}},
-    {"id":"A5_merged","lhs":{"wires":2,"ops":[{"gen":"M_g","on":1},{"gen":"M_g","on":1},{"gen":"CX"},{"gen":"M_g","on":1},{"gen":"CX"},{"gen":"M_g","on":1}]},"rhs":{"gen":"CX"}},
-    {"id":"A7","lhs":{"perm":[1,0]},"rhs":{"wires":2,"ops":[{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"CX"},{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"CX","on":[1,0]},{"gen":"M_g","on":0},{"gen":"M_g","on":0}]}},
+    {"id":"A1","lhs":{"gen":"M_g","repeat":4},"rhs":{"id":1}},
+    {"id":"A3_order","lhs":{"gen":"X","repeat":5},"rhs":{"id":1}},
+    {"id":"A3_g","lhs":{"wires":1,"ops":[{"gen":"X","repeat":4},{"gen":"M_g"},{"gen":"X","repeat":2}]},"rhs":{"gen":"M_g"}},
+    {"id":"A4_A6_merged","lhs":{"wires":2,"ops":[{"gen":"M_g","on":0},{"gen":"X","on":0},{"gen":"CX"}]},"rhs":{"wires":2,"ops":[{"gen":"CX","repeat":2},{"gen":"M_g","on":0},{"gen":"X","on":0},{"gen":"X","on":1}]}},
+    {"id":"A5_merged","lhs":{"wires":2,"ops":[{"gen":"M_g","on":1,"repeat":2},{"gen":"CX"},{"gen":"M_g","on":1},{"gen":"CX"},{"gen":"M_g","on":1}]},"rhs":{"gen":"CX"}},
+    {"id":"A7","lhs":{"perm":[1,0]},"rhs":{"wires":2,"ops":[{"gen":"CX","on":[1,0],"repeat":4},{"gen":"CX"},{"gen":"CX","on":[1,0],"repeat":4},{"gen":"M_g","on":0,"repeat":2}]}},
     {"id":"A8","lhs":{"wires":3,"ops":[{"gen":"CX","on":[0,2]},{"gen":"CX","on":[1,2]},{"gen":"CX","on":[0,1]}]},"rhs":{"wires":3,"ops":[{"gen":"CX","on":[0,1]},{"gen":"CX","on":[1,2]}]}},
-    {"id":"L19","lhs":{"wires":0,"ops":[{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"},{"gen":"omega"}]},"rhs":{"id":0}},
-    {"id":"L20","lhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"Z"},{"gen":"Z"},{"gen":"Z"},{"gen":"Z"}]},"rhs":{"id":1}},
+    {"id":"L19","lhs":{"gen":"omega","repeat":5},"rhs":{"id":0}},
+    {"id":"L20","lhs":{"gen":"Z","repeat":5},"rhs":{"id":1}},
     {"id":"L21","lhs":{"wires":2,"ops":[{"gen":"Z","on":0},{"gen":"Z","on":1},{"gen":"CX"}]},"rhs":{"wires":2,"ops":[{"gen":"CX"},{"gen":"Z","on":1}]}},
-    {"id":"L22_g","lhs":{"wires":1,"ops":[{"gen":"M_g"},{"gen":"Z"}]},"rhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"Z"},{"gen":"M_g"}]}},
+    {"id":"L22_g","lhs":{"wires":1,"ops":[{"gen":"M_g"},{"gen":"Z"}]},"rhs":{"wires":1,"ops":[{"gen":"Z","repeat":2},{"gen":"M_g"}]}},
     {"id":"L23","lhs":{"wires":1,"ops":[{"gen":"X"},{"gen":"Z"}]},"rhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"X"},{"gen":"omega"}]}},
-    {"id":"Q24","lhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"gen":"S"},{"gen":"S"},{"gen":"S"}]},"rhs":{"id":1}},
+    {"id":"Q24","lhs":{"gen":"S","repeat":5},"rhs":{"id":1}},
     {"id":"Q25","lhs":{"wires":1,"ops":[{"gen":"X"},{"gen":"S"}]},"rhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"Z"},{"gen":"X"}]}},
     {"id":"Q26","lhs":{"wires":1,"ops":[{"gen":"Z"},{"gen":"S"}]},"rhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"Z"}]}},
-    {"id":"Q27_g","lhs":{"wires":1,"ops":[{"gen":"M_g"},{"gen":"S"}]},"rhs":{"wires":1,"ops":[{"gen":"S"},{"gen":"S"},{"gen":"S"},{"gen":"S"},{"gen":"Z"},{"gen":"M_g"}]}},
-    {"id":"Q28","lhs":{"wires":2,"ops":[{"gen":"M_g","on":0},{"gen":"M_g","on":0},{"macro":"CZ"},{"macro":"CZ"},{"macro":"CZ"},{"macro":"CZ"},{"gen":"M_g","on":0},{"gen":"M_g","on":0}]},"rhs":{"macro":"CZ"}},
+    {"id":"Q27_g","lhs":{"wires":1,"ops":[{"gen":"M_g"},{"gen":"S"}]},"rhs":{"wires":1,"ops":[{"gen":"S","repeat":4},{"gen":"Z"},{"gen":"M_g"}]}},
+    {"id":"Q28","lhs":{"wires":2,"ops":[{"gen":"M_g","on":0,"repeat":2},{"macro":"CZ","repeat":4},{"gen":"M_g","on":0,"repeat":2}]},"rhs":{"macro":"CZ"}},
     {"id":"Q29","lhs":{"wires":2,"ops":[{"gen":"S","on":0},{"gen":"CX"}]},"rhs":{"wires":2,"ops":[{"gen":"CX"},{"gen":"S","on":0}]}},
     {"id":"Q30","lhs":{"wires":3,"ops":[{"gen":"CX","on":[0,1]},{"macro":"CZ","on":[1,2]}]},"rhs":{"wires":3,"ops":[{"macro":"CZ","on":[0,2]},{"macro":"CZ","on":[1,2]},{"gen":"CX","on":[0,1]}]}}
   ]
