@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
 
-from ..core import (
-    Circuit,
-    primitive_occurrences,
-)
+from ..core import Circuit
 from ..search import (
     Deadline,
     DirectEvidence,
     NotApplicable,
 )
-from .common import numerical_matrix, require_endomorphic_theory, retained_equations
+from .common import (
+    active_primitive_names,
+    numerical_matrix,
+    require_endomorphic_theory,
+    retained_equations,
+)
 
 TOLERANCE = 1e-12
 MAX_DENSE_DIMENSION = 1024
@@ -48,15 +50,9 @@ def _matrix(theory: Any, term: Circuit) -> np.ndarray:
 
 
 def _parts(term: Circuit) -> tuple[Circuit, ...]:
-    result: list[Circuit] = []
-    pending = [term]
-    while pending:
-        part = pending.pop()
-        if part.kind == "compose":
-            pending.extend(reversed(part.parts))
-        elif part.kind != "id":
-            result.append(part)
-    return tuple(result)
+    if term.kind == "compose":
+        return term.parts
+    return () if term.kind == "id" else (term,)
 
 
 def _check_reflection(name: str, value: np.ndarray, width: int) -> None:
@@ -104,13 +100,6 @@ def _reflection_generators(
     swap = _matrix(theory, Circuit.perm((1, 0)))
     _check_reflection("structural SWAP", swap, 2)
     return tuple(generators)
-
-
-def _active_generators(terms: Sequence[Circuit]) -> frozenset[str]:
-    names: set[str] = set()
-    for term in terms:
-        names.update(primitive_occurrences(term))
-    return frozenset(names)
 
 
 def _commutator_data(
@@ -207,12 +196,13 @@ def candidates(
         )
 
     retained = retained_equations(theory, target, context)
-    active = _active_generators(
+    active = active_primitive_names(
         (
             target.lhs,
             target.rhs,
             *(side for equation in retained for side in (equation.lhs, equation.rhs)),
         ),
+        context,
     )
     primitive_generators = _reflection_generators(theory, active, deadline)
     primitive_widths = sorted(

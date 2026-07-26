@@ -1,18 +1,45 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from math import isqrt
 from typing import Any
 
 import numpy as np
 
 from ..core import (
     Circuit,
+    CircuitAnalysis,
+    analyze_circuit,
     contains_arity_change,
     iter_circuit_nodes,
     iter_theory_terms,
-    primitive_occurrences,
 )
 from ..matrix import evaluate_matrix
 from ..search import Deadline, NotApplicable, relevant_equations
+
+
+def bounded_power(base: int, exponent: int, limit: int) -> int | None:
+    if base < 1 or exponent < 0 or limit < 1:
+        return None
+    if base == 1:
+        return 1
+    result = 1
+    for _ in range(exponent):
+        if result > limit // base:
+            return None
+        result *= base
+    return result
+
+
+def is_prime(value: int, deadline: Deadline | None = None) -> bool:
+    if value < 2:
+        return False
+    for divisor in range(2, isqrt(value) + 1):
+        if deadline is not None and divisor % 1024 == 0:
+            deadline.check()
+        if value % divisor == 0:
+            return False
+    return True
 
 
 def retained_equations(
@@ -21,8 +48,22 @@ def retained_equations(
     context: Any = None,
 ) -> tuple[Any, ...]:
     if context is not None:
-        return context.equations_for(target)
+        return context.for_target(target).equations
     return tuple(relevant_equations(theory, target))
+
+
+def circuit_analysis(term: Circuit, context: Any = None) -> CircuitAnalysis:
+    return context.analysis_for(term) if context is not None else analyze_circuit(term)
+
+
+def active_primitive_names(
+    terms: Iterable[Circuit], context: Any = None
+) -> frozenset[str]:
+    return frozenset(
+        name
+        for term in terms
+        for name, _ in circuit_analysis(term, context).occurrences
+    )
 
 
 def primitive_names(
@@ -30,18 +71,16 @@ def primitive_names(
     target: Any,
     deadline: Deadline,
     context: Any = None,
-) -> list[str]:
+) -> tuple[str, ...]:
+    if context is not None:
+        deadline.check()
+        return context.for_target(target).primitive_names
     names: set[str] = set()
     for equation in (*retained_equations(theory, target, context), target):
         deadline.check()
         for term in (equation.lhs, equation.rhs):
-            counts = (
-                context.occurrences_for(term)
-                if context is not None
-                else primitive_occurrences(term)
-            )
-            names.update(counts)
-    return sorted(names)
+            names.update(name for name, _ in circuit_analysis(term, context).occurrences)
+    return tuple(sorted(names))
 
 
 def projectively_equal(

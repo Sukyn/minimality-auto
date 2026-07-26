@@ -13,6 +13,8 @@ from typing import Any
 from .core import PropError, Theory, load_theory
 from .search import (
     DEFAULT_STRATEGIES,
+    DEFAULT_TIMEOUT,
+    LIMIT_SPECS,
     STRATEGY_SPECS,
     SearchConfigurationError,
     SearchReport,
@@ -39,83 +41,24 @@ def _parser() -> argparse.ArgumentParser:
             action="store_true",
             help=spec.help,
         )
-    parser.add_argument(
-        "--max-amalgam-prime",
-        type=int,
-        default=11,
-        help="largest finite-field characteristic for amalgam search (default: 11)",
-    )
-    parser.add_argument(
-        "--max-amalgam-order",
-        type=int,
-        default=4096,
-        help="largest finite factor or shared-subgroup order (default: 4096)",
-    )
-    parser.add_argument(
-        "--max-amalgam-bridge-generators",
-        type=int,
-        default=1,
-        help="largest active-generator bridge set (default: 1)",
-    )
-    parser.add_argument(
-        "--max-amalgam-scalars",
-        type=int,
-        default=3,
-        help="largest number of finite-field template scalars (default: 3)",
-    )
-    parser.add_argument(
-        "--max-amalgam-matrix-dimension",
-        type=int,
-        default=32,
-        help="largest ambient finite-field matrix dimension (default: 32)",
-    )
+
     parser.add_argument(
         "--equation", action="append", help="search only this equation ID; repeatable"
     )
     parser.add_argument("--max-arity", type=int, help="search only equations at most this arity")
-    parser.add_argument(
-        "--max-modulus",
-        type=int,
-        default=8,
-        help="largest counting modulus (default: 8)",
-    )
-    parser.add_argument(
-        "--max-depth",
-        type=int,
-        default=3,
-        help="largest substitution word length (default: 3)",
-    )
-    parser.add_argument(
-        "--max-substitution-matrix-entries",
-        type=int,
-        default=1_000_000,
-        help="largest dense substitution matrix footprint (default: 1000000)",
-    )
-    parser.add_argument(
-        "--max-permutation-degree",
-        "--max_permutation_degree",
-        "--max-degree",
-        type=int,
-        default=5,
-        help="largest permutation degree (default: 5)",
-    )
-    parser.add_argument(
-        "--max-spin-matrix-dimension",
-        type=int,
-        default=1024,
-        help="largest dense Spin matrix dimension (default: 1024)",
-    )
-    parser.add_argument(
-        "--max-block-matrix-dimension",
-        type=int,
-        default=512,
-        help="largest dense block-normal-form matrix dimension (default: 512)",
-    )
+    for limit in LIMIT_SPECS:
+        parser.add_argument(
+            *limit.flags,
+            dest=limit.name,
+            type=int,
+            default=limit.default,
+            help=f"{limit.help} (default: {limit.default})",
+        )
     parser.add_argument(
         "--timeout",
         type=float,
-        default=600.0,
-        help="global timeout in seconds (default: 600)",
+        default=DEFAULT_TIMEOUT,
+        help=f"global timeout in seconds (default: {DEFAULT_TIMEOUT:g})",
     )
     parser.add_argument(
         "--json",
@@ -129,9 +72,7 @@ def _parser() -> argparse.ArgumentParser:
 def _selected_strategies(args: argparse.Namespace) -> tuple[str, ...]:
     if args.auto:
         return DEFAULT_STRATEGIES
-    chosen = tuple(
-        name for name in DEFAULT_STRATEGIES if getattr(args, name)
-    )
+    chosen = tuple(name for name in DEFAULT_STRATEGIES if getattr(args, name))
     return chosen or DEFAULT_STRATEGIES
 
 
@@ -240,21 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             "equation_ids": set(args.equation) if args.equation else None,
             "max_arity": args.max_arity,
             "timeout": args.timeout,
-            "max_modulus": args.max_modulus,
-            "max_depth": args.max_depth,
-            "max_substitution_matrix_entries": (
-                args.max_substitution_matrix_entries
-            ),
-            "max_permutation_degree": args.max_permutation_degree,
-            "max_amalgam_prime": args.max_amalgam_prime,
-            "max_amalgam_order": args.max_amalgam_order,
-            "max_amalgam_bridge_generators": (
-                args.max_amalgam_bridge_generators
-            ),
-            "max_amalgam_scalars": args.max_amalgam_scalars,
-            "max_amalgam_matrix_dimension": args.max_amalgam_matrix_dimension,
-            "max_spin_matrix_dimension": args.max_spin_matrix_dimension,
-            "max_block_matrix_dimension": args.max_block_matrix_dimension,
+            **{limit.name: getattr(args, limit.name) for limit in LIMIT_SPECS},
         }
         emitted: set[str] = set()
 
@@ -274,9 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json_output:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     else:
-        certified = sum(
-            witness.certified for witness in report.witnesses.values()
-        )
+        certified = sum(witness.certified for witness in report.witnesses.values())
         numerical = len(report.witnesses) - certified
         summary = f"{report.theory}: {certified} separator(s) found"
         if numerical:

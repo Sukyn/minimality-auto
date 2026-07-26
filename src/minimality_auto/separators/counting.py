@@ -4,9 +4,8 @@ from collections.abc import Iterator
 from itertools import product
 from typing import Any
 
-from ..core import primitive_occurrences, structural_permutation_parity
 from ..search import CandidateModel, Deadline
-from .common import primitive_names, wire_parity_is_preserved
+from .common import circuit_analysis, primitive_names, wire_parity_is_preserved
 
 
 def candidates(
@@ -28,17 +27,6 @@ def candidates(
     )
     swap_values = (0, modulus // 2) if nonzero_swap_is_sound else (0,)
 
-    def features(term: Any) -> tuple[Any, int]:
-        if context is not None:
-            return (
-                context.occurrences_for(term),
-                context.parity_for(term),
-            )
-        return (
-            primitive_occurrences(term),
-            structural_permutation_parity(term),
-        )
-
     for values in product(range(modulus), repeat=len(names)):
         deadline.check()
         weights = dict(zip(names, values, strict=True))
@@ -52,9 +40,10 @@ def candidates(
                 swap: int = swap,
                 modulus: int = modulus,
             ) -> int:
-                counts, parity = features(term)
+                analysis = circuit_analysis(term, context)
+                counts = analysis.occurrence_counter()
                 total = sum(counts[name] * value for name, value in weights.items())
-                total += parity * swap
+                total += analysis.permutation_parity * swap
                 return total % modulus
 
             nonzero = {name: value for name, value in weights.items() if value}
@@ -64,5 +53,5 @@ def candidates(
             yield CandidateModel(
                 description=description,
                 parameters={"modulus": modulus, "weights": nonzero, "swap": swap},
-                evaluator=evaluate,
+                evaluate=evaluate,
             )

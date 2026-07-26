@@ -4,12 +4,13 @@
 # when all generators have at most two wires.  It may generalize to show the
 # necessity of a four-wire rule in theories with generators such as Toffoli.
 
-"""Conservative numerical three-wire block-normal-form evidence.
+"""Three-wire block-normal-form separation evidence.
 
 PROP coherence supplies the routed word; the Brylinski--Brylinski criterion
 classifies each two-wire block as local, SWAP-local, or entangling.  We compare
 every minimum adjacent routing and retain only alternating forms whose
-non-routing blocks each contain one entangling box.
+non-routing blocks each contain one entangling box.  Basis-permutation inputs
+are checked exactly; general unitary inputs retain the numerical fallback.
 """
 
 from __future__ import annotations
@@ -22,14 +23,15 @@ from typing import Any
 
 import numpy as np
 
-from ..core import Circuit, primitive_occurrences
-from ..matrix import permutation_matrix
+from ..core import Circuit
+from ..matrix import basis_digits, basis_index, basis_permutation, permutation_matrix
 from ..search import (
     Deadline,
     DirectEvidence,
     NotApplicable,
 )
 from .common import (
+    active_primitive_names,
     numerical_matrix,
     projectively_equal,
     require_endomorphic_theory,
@@ -40,6 +42,7 @@ UNITARY_TOLERANCE = 1e-8
 LOCAL_TOLERANCE = 1e-10
 ENTANGLING_TOLERANCE = 1e-8
 DEFAULT_MAX_MATRIX_DIMENSION = 512
+DEFAULT_MAX_EXACT_STATES = 4096
 MAX_ROUTING_PATHS = 256
 
 Layout = tuple[int, int, int]
@@ -63,16 +66,57 @@ def _matrix(theory: Any, term: Circuit) -> np.ndarray:
     return numerical_matrix(theory, term, "the block argument")
 
 
-def _active_generator_matrices(
-    theory: Any, terms: tuple[Circuit, ...], deadline: Deadline
-) -> dict[str, np.ndarray]:
-    active: set[str] = set()
-    for term in terms:
-        active.update(primitive_occurrences(term))
+def _exact_term_permutation(
+    theory: Any,
+    term: Circuit,
+    generators: dict[str, tuple[int, ...]],
+    deadline: Deadline,
+) -> tuple[int, ...]:
+    dimension = int(theory.wire_dimension)
 
+    def act(node: Circuit, values: tuple[int, ...]) -> tuple[int, ...]:
+        if node.kind == "id":
+            return values
+        if node.kind == "perm":
+            return tuple(values[index] for index in node.order)
+        if node.kind == "gen":
+            output = generators[node.name or ""][basis_index(values, dimension)]
+            return basis_digits(output, node.outputs, dimension)
+        if node.kind == "compose":
+            for part in node.parts:
+                values = act(part, values)
+            return values
+        if node.kind == "tensor":
+            output: list[int] = []
+            offset = 0
+            for part in node.parts:
+                end = offset + part.inputs
+                output.extend(act(part, values[offset:end]))
+                offset = end
+            return tuple(output)
+        raise NotApplicable(f"unsupported circuit node {node.kind!r}")
+
+    size = dimension**term.inputs
+    result = []
+    for column in range(size):
+        if column % 256 == 0:
+            deadline.check()
+        output = act(term, basis_digits(column, term.inputs, dimension))
+        result.append(basis_index(output, dimension))
+    return tuple(result)
+
+
+def _active_generator_matrices(
+    theory: Any,
+    terms: tuple[Circuit, ...],
+    deadline: Deadline,
+    context: Any = None,
+) -> tuple[dict[str, np.ndarray], dict[str, tuple[int, ...]] | None]:
     dimension = int(theory.wire_dimension)
     matrices: dict[str, np.ndarray] = {}
-    for name in sorted(active):
+    permutations: dict[str, tuple[int, ...]] = {}
+    exact = True
+    for name in sorted(active_primitive_names(terms, context)):
         deadline.check()
         if name not in theory.signature:
             raise NotApplicable(f"active primitive {name!r} is not declared")
@@ -88,16 +132,22 @@ def _active_generator_matrices(
             )
         value = np.asarray(generator.matrix, dtype=np.complex128)
         size = dimension**generator.inputs
-        identity = np.eye(size, dtype=np.complex128)
-        if value.shape != (size, size) or not np.allclose(
+        permutation = basis_permutation(value, deadline.check)
+        if permutation is not None:
+            permutations[name] = permutation
+        else:
+            exact = False
+        if value.shape != (size, size):
+            raise NotApplicable(f"active primitive {name!r} has the wrong matrix size")
+        if permutation is None and not np.allclose(
             value.conj().T @ value,
-            identity,
+            np.eye(size, dtype=np.complex128),
             atol=UNITARY_TOLERANCE,
             rtol=UNITARY_TOLERANCE,
         ):
             raise NotApplicable(f"active primitive {name!r} is not unitary")
         matrices[name] = value
-    return matrices
+    return matrices, permutations if exact else None
 
 
 def _trace_node(
@@ -366,7 +416,7 @@ def _normal_form(
 
 
 def _rank_status(
-    matrix: np.ndarray, dimension: int
+    matrix: np.ndarray, dimension: int, *, exact: bool = False
 ) -> tuple[str, float, dict[str, Any] | None]:
     realigned = (
         matrix.reshape(dimension, dimension, dimension, dimension)
@@ -383,6 +433,17 @@ def _rank_status(
     )
     witness_index = np.unravel_index(int(np.argmax(np.abs(minors))), minors.shape)
     witness_value = complex(minors[witness_index])
+    if exact:
+        if pivot_value != 1 or witness_value not in {-1, 0, 1}:
+            raise NotApplicable("invalid exact operator-Schmidt minor")
+        witness = {
+            "rows": [pivot[0], witness_index[0]],
+            "columns": [pivot[1], witness_index[1]],
+            "determinant": int(witness_value.real),
+        }
+        if witness_value == 0:
+            return "rank_one", 0.0, None
+        return "higher_rank", 1.0, witness
     ratio = float(abs(witness_value) / abs(pivot_value) ** 2)
     witness = {
         "rows": [pivot[0], witness_index[0]],
@@ -397,12 +458,15 @@ def _rank_status(
 
 
 def _block_kind(
-    matrix: np.ndarray, dimension: int
+    matrix: np.ndarray, dimension: int, *, exact: bool = False
 ) -> tuple[str, dict[str, Any]]:
-    local, local_minor, local_witness = _rank_status(matrix, dimension)
+    local, local_minor, local_witness = _rank_status(
+        matrix, dimension, exact=exact
+    )
     swapped, swapped_minor, swapped_witness = _rank_status(
         matrix @ permutation_matrix((1, 0), dimension),
         dimension,
+        exact=exact,
     )
     data = {
         "largest_normalized_minor": local_minor,
@@ -426,6 +490,7 @@ def candidates(
     bound: int,
     deadline: Deadline,
     max_block_matrix_dimension: int = DEFAULT_MAX_MATRIX_DIMENSION,
+    max_block_exact_states: int = DEFAULT_MAX_EXACT_STATES,
     context: Any = None,
 ) -> Iterator[DirectEvidence]:
     if bound != 3:
@@ -437,39 +502,55 @@ def candidates(
     dimension = int(theory.wire_dimension)
     if dimension < 2:
         raise NotApplicable("the Brylinski classification requires dimension >= 2")
-    if dimension**3 > max_block_matrix_dimension:
-        raise NotApplicable(
-            f"ambient matrix dimension exceeds {max_block_matrix_dimension}"
-        )
-
     retained = retained_equations(theory, target, context)
     if any(equation.arity > 2 for equation in retained):
         raise NotApplicable("a retained relevant equation acts on three wires")
+    state_count = dimension**3
+    if state_count > max(max_block_exact_states, max_block_matrix_dimension):
+        raise NotApplicable("ambient representation exceeds both block resource bounds")
 
     terms = (
         target.lhs,
         target.rhs,
         *(side for equation in retained for side in (equation.lhs, equation.rhs)),
     )
-    matrices = _active_generator_matrices(theory, terms, deadline)
+    matrices, permutations = _active_generator_matrices(
+        theory, terms, deadline, context
+    )
+    exact = permutations is not None
+    limit = max_block_exact_states if exact else max_block_matrix_dimension
+    if state_count > limit:
+        representation = "basis-state" if exact else "matrix-dimension"
+        raise NotApplicable(
+            f"ambient {representation} bound exceeds {limit}"
+        )
 
     left_trace = _logical_trace(target.lhs)
     right_trace = _logical_trace(target.rhs)
     target_events = (*left_trace[0], *right_trace[0])
     certificates: dict[str, dict[str, Any]] = {}
     for name in sorted({event.name for event in target_events}):
-        kind, data = _block_kind(matrices[name], dimension)
+        kind, data = _block_kind(matrices[name], dimension, exact=exact)
         if kind != "entangling":
             raise NotApplicable(f"target box {name!r} is degenerate")
         certificates[name] = data
 
     for equation in (*retained, target):
         deadline.check()
-        if not projectively_equal(
-            _matrix(theory, equation.lhs),
-            _matrix(theory, equation.rhs),
-            UNITARY_TOLERANCE,
-        ):
+        if exact:
+            assert permutations is not None
+            sound = _exact_term_permutation(
+                theory, equation.lhs, permutations, deadline
+            ) == _exact_term_permutation(
+                theory, equation.rhs, permutations, deadline
+            )
+        else:
+            sound = projectively_equal(
+                _matrix(theory, equation.lhs),
+                _matrix(theory, equation.rhs),
+                UNITARY_TOLERANCE,
+            )
+        if not sound:
             raise NotApplicable(
                 f"equation {equation.id!r} is not matrix-sound "
                 "up to global phase"
@@ -493,27 +574,39 @@ def candidates(
         difference = (
             f"{left['block_count']} versus {right['block_count']} blocks"
         )
+    parameters = {
+        "wire_dimension": dimension,
+        "retained_arity_bound": 2,
+        "normal_form": "alternating adjacent blocks with lower-pair padding",
+        "local_equivalence": (
+            "discard scalar phases and absorb one-wire unitaries"
+        ),
+        "primitive_test": (
+            "Brylinski local-or-local-after-SWAP operator-Schmidt test"
+        ),
+        "generator_rank_certificates": certificates,
+        "arithmetic": (
+            "exact 0/1 basis permutations"
+            if exact
+            else "floating-point matrices"
+        ),
+    }
+    if not exact:
+        parameters.update(
+            {
+                "unitary_tolerance": UNITARY_TOLERANCE,
+                "local_tolerance": LOCAL_TOLERANCE,
+                "entangling_tolerance": ENTANGLING_TOLERANCE,
+            }
+        )
     yield DirectEvidence(
         description=(
-            f"numerical three-wire irreducible block normal forms differ "
+            f"{'exact' if exact else 'numerical'} three-wire irreducible "
+            f"block normal forms differ "
             f"({difference})"
         ),
-        parameters={
-            "wire_dimension": dimension,
-            "retained_arity_bound": 2,
-            "normal_form": "alternating adjacent blocks with lower-pair padding",
-            "local_equivalence": (
-                "discard scalar phases and absorb one-wire unitaries"
-            ),
-            "primitive_test": (
-                "Brylinski local-or-local-after-SWAP operator-Schmidt test"
-            ),
-            "generator_rank_certificates": certificates,
-            "unitary_tolerance": UNITARY_TOLERANCE,
-            "local_tolerance": LOCAL_TOLERANCE,
-            "entangling_tolerance": ENTANGLING_TOLERANCE,
-        },
+        parameters=parameters,
         lhs_value=left,
         rhs_value=right,
-        certified=False,
+        certified=exact,
     )

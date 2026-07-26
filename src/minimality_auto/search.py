@@ -4,7 +4,6 @@ import importlib
 import math
 import operator
 import time
-from collections import Counter
 from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,16 +48,10 @@ class Deadline:
 class CandidateModel:
     description: str
     parameters: dict[str, Any]
-    evaluator: Callable[[Any], Any]
-    equality: Callable[[Any, Any], bool] = operator.eq
+    evaluate: Callable[[Any], Any]
+    equal: Callable[[Any, Any], bool] = operator.eq
     key: Hashable | None = None
     certified: bool = True
-
-    def evaluate(self, term: Any) -> Any:
-        return self.evaluator(term)
-
-    def equal(self, left: Any, right: Any) -> bool:
-        return self.equality(left, right)
 
 
 @dataclass(frozen=True)
@@ -113,8 +106,15 @@ class SearchReport:
 
 
 @dataclass(slots=True)
+class TargetContext:
+    equations: tuple[Equation, ...]
+    primitive_names: tuple[str, ...]
+    fixed_arity_presentation: Any = None
+
+
+@dataclass(slots=True)
 class SearchContext:
-    retained: dict[Equation, tuple[Equation, ...]]
+    targets: dict[Equation, TargetContext]
     active_primitive_count: int
     endomorphic: bool
     analyses: dict[Circuit, CircuitAnalysis]
@@ -131,19 +131,14 @@ class SearchContext:
             deadline.check()
         checkpoint = deadline.check if deadline is not None else None
         terms = dict.fromkeys(iter_theory_terms(theory))
-        for target in targets:
-            terms[target.lhs] = None
-            terms[target.rhs] = None
-        analyses = {
-            term: analyze_circuit(term, checkpoint)
-            for term in terms
-        }
+        analyses = {term: analyze_circuit(term, checkpoint) for term in terms}
         endomorphic = _theory_is_endomorphic(theory, deadline, analyses)
-        retained: dict[Equation, tuple[Equation, ...]] = {}
+        target_contexts: dict[Equation, TargetContext] = {}
+        active_names: set[str] = set()
         for target in targets:
             if deadline is not None:
                 deadline.check()
-            retained[target] = tuple(
+            retained = tuple(
                 _relevant_equations(
                     theory,
                     target,
@@ -152,25 +147,23 @@ class SearchContext:
                     analyses=analyses,
                 )
             )
-        seen_terms: set[Circuit] = set()
-        for target in targets:
-            for equation in (*retained[target], target):
+            names: set[str] = set()
+            for equation in (*retained, target):
                 for term in (equation.lhs, equation.rhs):
-                    seen_terms.add(term)
-        active_names: set[str] = set()
-        for term in seen_terms:
-            if deadline is not None:
-                deadline.check()
-            active_names.update(dict(analyses[term].occurrences))
+                    if deadline is not None:
+                        deadline.check()
+                    names.update(name for name, _ in analyses[term].occurrences)
+            target_contexts[target] = TargetContext(retained, tuple(sorted(names)))
+            active_names.update(names)
         return cls(
-            retained,
+            target_contexts,
             len(active_names),
             endomorphic,
             analyses,
         )
 
-    def equations_for(self, target: Equation) -> tuple[Equation, ...]:
-        return self.retained[target]
+    def for_target(self, target: Equation) -> TargetContext:
+        return self.targets[target]
 
     def analysis_for(self, term: Circuit) -> CircuitAnalysis:
         analysis = self.analyses.get(term)
@@ -179,11 +172,44 @@ class SearchContext:
             self.analyses[term] = analysis
         return analysis
 
-    def occurrences_for(self, term: Circuit) -> Counter[str]:
-        return self.analysis_for(term).occurrence_counter()
 
-    def parity_for(self, term: Circuit) -> int:
-        return self.analysis_for(term).permutation_parity
+@dataclass(frozen=True)
+class LimitSpec:
+    name: str
+    default: int
+    minimum: int
+    help: str
+    aliases: tuple[str, ...] = ()
+
+    @property
+    def flags(self) -> tuple[str, ...]:
+        return (f"--{self.name.replace('_', '-')}", *self.aliases)
+
+
+LIMIT_SPECS = (
+    LimitSpec("max_modulus", 8, 2, "largest counting modulus"),
+    LimitSpec("max_depth", 3, 0, "largest substitution word length"),
+    LimitSpec("max_substitution_matrix_entries", 1_000_000, 1, "dense matrix entries"),
+    LimitSpec(
+        "max_permutation_degree",
+        5,
+        2,
+        "largest permutation degree",
+        ("--max_permutation_degree", "--max-degree"),
+    ),
+    LimitSpec("max_affine_lift_prime", 5, 2, "largest affine-lift characteristic"),
+    LimitSpec("max_affine_lift_dimension", 128, 1, "largest affine-lift dimension"),
+    LimitSpec("max_amalgam_prime", 11, 2, "largest amalgam characteristic"),
+    LimitSpec("max_amalgam_order", 4096, 1, "largest finite factor order"),
+    LimitSpec("max_amalgam_bridge_generators", 1, 1, "largest bridge set"),
+    LimitSpec("max_amalgam_scalars", 3, 0, "largest template-scalar count"),
+    LimitSpec("max_amalgam_matrix_dimension", 32, 1, "largest finite-field matrix"),
+    LimitSpec("max_spin_matrix_dimension", 1024, 1, "largest dense Spin matrix"),
+    LimitSpec("max_block_matrix_dimension", 512, 1, "largest dense block matrix"),
+    LimitSpec("max_block_exact_states", 4096, 1, "largest exact block state space"),
+)
+LIMIT_BY_NAME = {spec.name: spec for spec in LIMIT_SPECS}
+DEFAULT_TIMEOUT = 600.0
 
 
 @dataclass(frozen=True)
@@ -212,15 +238,6 @@ class StrategySpec:
         else:
             base = limits[self.bound]
         return base + self.bound_padding
-
-    def load_candidates(
-        self,
-    ) -> Callable[..., Iterator[CandidateModel | DirectEvidence]]:
-        module = importlib.import_module(
-            f".separators.{self.name}",
-            package=__package__,
-        )
-        return module.candidates
 
 
 @dataclass(frozen=True)
@@ -254,7 +271,7 @@ STRATEGY_SPECS = (
         ("--block-normal-form", "--block_normal_form", "--brylinski"),
         "run three-wire Brylinski block-normal-form evidence",
         3,
-        option_names=("max_block_matrix_dimension",),
+        option_names=("max_block_matrix_dimension", "max_block_exact_states"),
         eager_bound=3,
     ),
     StrategySpec(
@@ -263,6 +280,14 @@ STRATEGY_SPECS = (
         "search small permutation interpretations",
         "max_permutation_degree",
         option_names=("max_permutation_degree",),
+        eager_bound=2,
+    ),
+    StrategySpec(
+        "affine_lift",
+        ("--affine-lift", "--affine_lift"),
+        "search exact finite affine lifts of basis-permutation semantics",
+        "max_affine_lift_prime",
+        option_names=("max_affine_lift_prime", "max_affine_lift_dimension"),
         eager_bound=2,
     ),
     StrategySpec(
@@ -316,15 +341,9 @@ def _theory_is_endomorphic(
         if generator.inputs != generator.outputs:
             return False
     if analyses is not None:
-        return all(
-            not analyses[term].changes_arity
-            for term in iter_theory_terms(theory)
-        )
+        return all(not analyses[term].changes_arity for term in iter_theory_terms(theory))
     checkpoint = deadline.check if deadline is not None else None
-    return all(
-        not contains_arity_change(term, checkpoint)
-        for term in iter_theory_terms(theory)
-    )
+    return all(not contains_arity_change(term, checkpoint) for term in iter_theory_terms(theory))
 
 
 def _relevant_equations(
@@ -335,15 +354,10 @@ def _relevant_equations(
     deadline: Deadline | None = None,
     analyses: Mapping[Circuit, CircuitAnalysis] | None = None,
 ) -> list[Equation]:
-    others = [
-        equation
-        for equation in theory.equations
-        if equation.id != target.id
-    ]
+    others = [equation for equation in theory.equations if equation.id != target.id]
     if analyses is not None:
         target_changes_arity = (
-            analyses[target.lhs].changes_arity
-            or analyses[target.rhs].changes_arity
+            analyses[target.lhs].changes_arity or analyses[target.rhs].changes_arity
         )
     else:
         checkpoint = deadline.check if deadline is not None else None
@@ -357,9 +371,7 @@ def _relevant_equations(
 
 def relevant_equations(theory: Theory, target: Equation) -> list[Equation]:
     """Rules to validate, with an arity shortcut for endomorphic theories."""
-    return _relevant_equations(
-        theory, target, endomorphic=_theory_is_endomorphic(theory)
-    )
+    return _relevant_equations(theory, target, endomorphic=_theory_is_endomorphic(theory))
 
 
 def verify(
@@ -383,7 +395,7 @@ def verify(
 
     checked: list[str] = []
     equations = (
-        context.equations_for(target)
+        context.for_target(target).equations
         if context is not None
         else relevant_equations(theory, target)
     )
@@ -424,9 +436,7 @@ def _direct_separation(
         strategy=strategy,
         description=evidence.description,
         parameters=evidence.parameters,
-        checked_equations=tuple(
-            equation.id for equation in context.equations_for(target)
-        ),
+        checked_equations=tuple(equation.id for equation in context.for_target(target).equations),
         lhs_value=evidence.lhs_value,
         rhs_value=evidence.rhs_value,
         certified=evidence.certified,
@@ -442,8 +452,12 @@ def _strategy_specs(
     resolved: dict[str, _ResolvedStrategy] = {}
     for name in names:
         spec = _STRATEGY_BY_NAME[name]
+        module = importlib.import_module(
+            f".separators.{spec.name}",
+            package=__package__,
+        )
         resolved[name] = _ResolvedStrategy(
-            candidates=spec.load_candidates(),
+            candidates=module.candidates,
             max_bound=spec.maximum_bound(context, targets, options),
             bound_offset=spec.candidate_offset,
             options={key: options[key] for key in spec.option_names},
@@ -494,56 +508,42 @@ def _candidate_witnesses(
     seen: set[tuple[Hashable, bool]],
 ) -> Iterator[Separation]:
     try:
-        models = iter(
-            spec.candidates(
-                theory,
-                target,
-                bound=bound + spec.bound_offset,
-                deadline=deadline,
-                context=context,
-                **spec.options,
-            )
+        models = spec.candidates(
+            theory,
+            target,
+            bound=bound + spec.bound_offset,
+            deadline=deadline,
+            context=context,
+            **spec.options,
         )
+        for model in models:
+            deadline.check()
+            try:
+                if isinstance(model, DirectEvidence):
+                    witness = _direct_separation(model, target, strategy_name, context)
+                else:
+                    seen_key = (model.key, model.certified) if model.key is not None else None
+                    if seen_key is not None and seen_key in seen:
+                        continue
+                    witness = verify(
+                        model,
+                        theory,
+                        target,
+                        deadline,
+                        context,
+                        strategy=strategy_name,
+                    )
+                    if seen_key is not None:
+                        seen.add(seen_key)
+            except NotApplicable:
+                continue
+
+            if witness is not None:
+                yield witness
+                if witness.certified:
+                    return
     except NotApplicable:
         return
-
-    while True:
-        try:
-            model = next(models)
-        except StopIteration:
-            return
-        except NotApplicable:
-            return
-
-        deadline.check()
-        try:
-            if isinstance(model, DirectEvidence):
-                witness = _direct_separation(model, target, strategy_name, context)
-            else:
-                seen_key = (
-                    (model.key, model.certified)
-                    if model.key is not None
-                    else None
-                )
-                if seen_key is not None and seen_key in seen:
-                    continue
-                witness = verify(
-                    model,
-                    theory,
-                    target,
-                    deadline,
-                    context,
-                    strategy=strategy_name,
-                )
-                if seen_key is not None:
-                    seen.add(seen_key)
-        except NotApplicable:
-            continue
-
-        if witness is not None:
-            yield witness
-            if witness.certified:
-                return
 
 
 def search_theory(
@@ -552,72 +552,34 @@ def search_theory(
     strategies: Iterable[str] = DEFAULT_STRATEGIES,
     equation_ids: set[str] | None = None,
     max_arity: int | None = None,
-    timeout: float = 600.0,
-    max_modulus: int = 8,
-    max_depth: int = 3,
-    max_substitution_matrix_entries: int = 1_000_000,
-    max_permutation_degree: int = 5,
-    max_amalgam_prime: int = 11,
-    max_amalgam_order: int = 4096,
-    max_amalgam_bridge_generators: int = 1,
-    max_amalgam_scalars: int = 3,
-    max_amalgam_matrix_dimension: int = 32,
-    max_spin_matrix_dimension: int = 1024,
-    max_block_matrix_dimension: int = 512,
+    timeout: float = DEFAULT_TIMEOUT,
     on_witness: Callable[[Separation], None] | None = None,
+    **limits: int,
 ) -> SearchReport:
     strategies = tuple(strategies)
     unknown = sorted(set(strategies) - set(DEFAULT_STRATEGIES))
     if unknown:
-        raise SearchConfigurationError(
-            f"unknown separation strategy: {', '.join(unknown)}"
-        )
+        raise SearchConfigurationError(f"unknown separation strategy: {', '.join(unknown)}")
     try:
         timeout = float(timeout)
     except (TypeError, ValueError) as exc:
-        raise SearchConfigurationError(
-            "timeout must be a finite non-negative number"
-        ) from exc
+        raise SearchConfigurationError("timeout must be a finite non-negative number") from exc
     if not math.isfinite(timeout) or timeout < 0:
         raise SearchConfigurationError("timeout must be a finite non-negative number")
     if max_arity is not None:
         max_arity = _integer_option("max_arity", max_arity, 0)
+    unknown_limits = limits.keys() - LIMIT_BY_NAME.keys()
+    if unknown_limits:
+        raise SearchConfigurationError(
+            f"unknown search limit(s): {', '.join(sorted(unknown_limits))}"
+        )
     candidate_options = {
-        "max_modulus": _integer_option("max_modulus", max_modulus, 2),
-        "max_depth": _integer_option("max_depth", max_depth, 0),
-        "max_substitution_matrix_entries": _integer_option(
-            "max_substitution_matrix_entries",
-            max_substitution_matrix_entries,
-            1,
-        ),
-        "max_permutation_degree": _integer_option(
-            "max_permutation_degree", max_permutation_degree, 2
-        ),
-        "max_amalgam_prime": _integer_option(
-            "max_amalgam_prime", max_amalgam_prime, 2
-        ),
-        "max_amalgam_order": _integer_option(
-            "max_amalgam_order", max_amalgam_order, 1
-        ),
-        "max_amalgam_bridge_generators": _integer_option(
-            "max_amalgam_bridge_generators",
-            max_amalgam_bridge_generators,
-            1,
-        ),
-        "max_amalgam_scalars": _integer_option(
-            "max_amalgam_scalars", max_amalgam_scalars, 0
-        ),
-        "max_amalgam_matrix_dimension": _integer_option(
-            "max_amalgam_matrix_dimension",
-            max_amalgam_matrix_dimension,
-            1,
-        ),
-        "max_spin_matrix_dimension": _integer_option(
-            "max_spin_matrix_dimension", max_spin_matrix_dimension, 1
-        ),
-        "max_block_matrix_dimension": _integer_option(
-            "max_block_matrix_dimension", max_block_matrix_dimension, 1
-        ),
+        spec.name: _integer_option(
+            spec.name,
+            limits.get(spec.name, spec.default),
+            spec.minimum,
+        )
+        for spec in LIMIT_SPECS
     }
 
     start = time.monotonic()
@@ -679,9 +641,7 @@ def search_theory(
                     bucket,
                 ):
                     previous = witnesses.get(target_id)
-                    if previous is None or (
-                        not previous.certified and witness.certified
-                    ):
+                    if previous is None or (not previous.certified and witness.certified):
                         witnesses[target_id] = witness
                         if on_witness is not None:
                             on_witness(witness)

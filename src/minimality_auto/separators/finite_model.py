@@ -126,23 +126,6 @@ def _validate_assignment(
             raise ValueError("permutation interpretation violates a required relation")
 
 
-def _validate_prop_assignment(
-    arity: int,
-    generators: tuple[tuple[str, int], ...],
-    assignment: Mapping[Token, Permutation],
-    degree: int,
-) -> None:
-    variables = tuple(fixed_arity.generator(name) for name, _ in generators) + tuple(
-        fixed_arity.swap(index) for index in range(arity - 1)
-    )
-    _validate_assignment(
-        variables,
-        fixed_arity.prop_constraints(arity, generators),
-        assignment,
-        degree,
-    )
-
-
 def _find_assignment(
     variables: tuple[Token, ...],
     constraints: tuple[fixed_arity.Constraint, ...],
@@ -366,5 +349,5 @@ def candidates(
                 "structural_swaps": swap_values,
             },
         },
-        evaluator=evaluate,
+        evaluate=evaluate,
     )

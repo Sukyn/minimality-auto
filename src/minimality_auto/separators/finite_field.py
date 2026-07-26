@@ -7,8 +7,10 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import cache
 from typing import Any
 
+from ..matrix import basis_wire_permutation
 from ..search import Deadline, NotApplicable
 from . import fixed_arity
 
@@ -20,6 +22,7 @@ class Reject(RuntimeError):
     pass
 
 
+@cache
 def identity(size: int) -> Mat:
     return tuple(
         1 if row == column else 0
@@ -93,22 +96,13 @@ def kronecker(
     )
 
 
-def permutation_matrix(
-    order: Sequence[int], wire_dimension: int, prime: int
-) -> Mat:
-    wires = len(order)
-    size = wire_dimension**wires
+@cache
+def permutation_matrix(order: tuple[int, ...], wire_dimension: int) -> Mat:
+    routing = basis_wire_permutation(order, wire_dimension)
+    size = len(routing)
     result = [0] * (size * size)
-    for column in range(size):
-        digits = [0] * wires
-        value = column
-        for index in range(wires - 1, -1, -1):
-            digits[index] = value % wire_dimension
-            value //= wire_dimension
-        row = 0
-        for source in order:
-            row = row * wire_dimension + digits[source]
-        result[row * size + column] = 1 % prime
+    for column, row in enumerate(routing):
+        result[row * size + column] = 1
     return tuple(result)
 
 
@@ -239,9 +233,7 @@ def instantiate(
     for index in range(arity - 1):
         order = list(range(arity))
         order[index], order[index + 1] = order[index + 1], order[index]
-        atoms[fixed_arity.swap(index)] = permutation_matrix(
-            order, wire_dimension, prime
-        )
+        atoms[fixed_arity.swap(index)] = permutation_matrix(tuple(order), wire_dimension)
     for matrix in atoms.values():
         inverse(matrix, total_size, prime)
     return atoms, native

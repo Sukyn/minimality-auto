@@ -11,27 +11,15 @@ from collections import deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations, product
-from math import isqrt
 from typing import Any
 
 from ..core import Circuit
 from ..search import CandidateModel, Deadline, NotApplicable
 from . import finite_field, fixed_arity
-from .common import require_endomorphic_theory
+from .common import bounded_power, is_prime, require_endomorphic_theory
 from .fixed_arity import Token, Word
 
 MAX_MATRIX_DIMENSION = 32
-
-
-def _bounded_power(base: int, exponent: int, limit: int) -> int | None:
-    if base < 1 or exponent < 0 or limit < 1:
-        return None
-    result = 1
-    for _ in range(exponent):
-        if result > limit // base:
-            return None
-        result *= base
-    return result
 
 
 def _word_matrix(
@@ -400,6 +388,7 @@ def _candidate(
             fixed_arity.display_name(fixed_arity.swap(index))
         ] = order
     bridge_names = [str(token[1]) for token in bridge_tokens]
+
     def variable_label(index: int) -> str:
         value = variables[index]
         if abs(value.imag) <= 1e-10:
@@ -432,19 +421,8 @@ def _candidate(
             "interpretation": interpretation,
             "structural_swaps": structural,
         },
-        evaluator=evaluate,
+        evaluate=evaluate,
     )
-
-
-def _is_prime(value: int, deadline: Deadline | None = None) -> bool:
-    if value < 2:
-        return False
-    for divisor in range(2, isqrt(value) + 1):
-        if deadline is not None and divisor % 1024 == 0:
-            deadline.check()
-        if value % divisor == 0:
-            return False
-    return True
 
 
 def _bridge_subsets(
@@ -486,7 +464,7 @@ def candidates(
     arity = target.arity
     if target.lhs.type != (arity, arity):
         return
-    size = _bounded_power(
+    size = bounded_power(
         theory.wire_dimension, arity, max_amalgam_matrix_dimension
     )
     if size is None:
@@ -516,7 +494,7 @@ def candidates(
     )
     for prime in range(2, max_amalgam_prime + 1):
         deadline.check()
-        if not _is_prime(prime, deadline):
+        if not is_prime(prime, deadline):
             continue
         for assignment in product(range(prime), repeat=len(templates.variables)):
             deadline.check()

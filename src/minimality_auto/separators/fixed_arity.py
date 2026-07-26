@@ -261,6 +261,13 @@ def compile_presentation(
 ) -> Presentation:
     """Compile the retained theory and target once for fixed-arity searches."""
 
+    if context is not None:
+        target_context = context.for_target(target)
+        cached = target_context.fixed_arity_presentation
+        if cached is not None:
+            deadline.check()
+            return cached
+
     arity = target.arity
     if arity < 0:
         raise NotApplicable("fixed-arity search requires a non-negative arity")
@@ -300,7 +307,7 @@ def compile_presentation(
         for name, width in signature.items()
         if generator(name) in used
     )
-    return Presentation(
+    result = Presentation(
         arity=arity,
         signature=signature,
         retained=retained,
@@ -312,3 +319,6 @@ def compile_presentation(
             *(swap(index) for index in range(arity - 1)),
         ),
     )
+    if context is not None:
+        target_context.fixed_arity_presentation = result
+    return result

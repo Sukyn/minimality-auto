@@ -109,18 +109,31 @@ def parse_complex(value: Any) -> complex:
 
 
 def _matrix_tuple(value: Any) -> tuple[tuple[complex, ...], ...]:
-    if isinstance(value, Mapping) and "diagonal" in value:
-        unknown = set(value) - {"diagonal"}
-        if unknown:
-            raise ValidationError(f"unknown diagonal matrix fields: {sorted(unknown)}")
-        diagonal = value["diagonal"]
-        if not _is_sequence(diagonal) or not diagonal:
-            raise ValidationError("matrix diagonal must be a non-empty array")
-        entries = tuple(parse_complex(item) for item in diagonal)
-        return tuple(
-            tuple(entry if row == column else 0j for column, entry in enumerate(entries))
-            for row in range(len(entries))
-        )
+    if isinstance(value, Mapping):
+        if set(value) == {"diagonal"}:
+            diagonal = value["diagonal"]
+            if not _is_sequence(diagonal) or not diagonal:
+                raise ValidationError("matrix diagonal must be a non-empty array")
+            entries = tuple(parse_complex(item) for item in diagonal)
+            return tuple(
+                tuple(entry if row == column else 0j for column, entry in enumerate(entries))
+                for row in range(len(entries))
+            )
+        if set(value) == {"permutation"}:
+            raw = value["permutation"]
+            if not _is_sequence(raw) or not raw:
+                raise ValidationError("matrix permutation must be a non-empty array")
+            permutation = tuple(_natural(item, "matrix permutation entry") for item in raw)
+            if tuple(sorted(permutation)) != tuple(range(len(permutation))):
+                raise ValidationError("matrix permutation must contain each index once")
+            return tuple(
+                tuple(
+                    1 + 0j if permutation[column] == row else 0j
+                    for column in range(len(permutation))
+                )
+                for row in range(len(permutation))
+            )
+        raise ValidationError("matrix object must contain only diagonal or permutation")
     if not _is_sequence(value) or not value:
         raise ValidationError("matrix must be a non-empty array of rows")
     rows: list[tuple[complex, ...]] = []
@@ -199,12 +212,15 @@ class Signature(Mapping[str, Generator]):
                 _reject_unknown(spec, {"type", "matrix"}, f"generator {name!r}")
                 if "type" not in spec:
                     raise ValidationError(f"generator {name!r} has no type")
+                if "matrix" not in spec:
+                    raise ValidationError(
+                        f"generator {name!r} without a matrix must use a bare type"
+                    )
                 inputs, outputs = _type_pair(
                     spec["type"],
                     f"generator {name!r} type",
                 )
-                raw_matrix = spec.get("matrix")
-                matrix = _matrix_tuple(raw_matrix) if raw_matrix is not None else None
+                matrix = _matrix_tuple(spec["matrix"])
             generators.append(Generator(name, inputs, outputs, matrix))
         return cls(generators)
 
@@ -242,22 +258,12 @@ class Circuit:
         return self.inputs, self.outputs
 
     @classmethod
-    def generator(
-        cls,
-        generator: Generator | str,
-        inputs: int | None = None,
-        outputs: int | None = None,
-    ) -> Circuit:
-        if isinstance(generator, Generator):
-            return cls("gen", generator.inputs, generator.outputs, name=generator.name)
-        name = _identifier(generator, "generator name")
-        if inputs is None or outputs is None:
-            raise ValidationError(f"type required for generator {name!r}")
+    def generator(cls, generator: Generator) -> Circuit:
         return cls(
             "gen",
-            _natural(inputs, "generator inputs"),
-            _natural(outputs, "generator outputs"),
-            name=name,
+            generator.inputs,
+            generator.outputs,
+            name=generator.name,
         )
 
     @classmethod
@@ -280,7 +286,9 @@ class Circuit:
 
     @classmethod
     def compose(cls, parts: Iterable[Circuit]) -> Circuit:
-        items = list(parts)
+        items = [
+            item for part in parts for item in (part.parts if part.kind == "compose" else (part,))
+        ]
         if not items:
             raise ValidationError("empty composition has no type")
         for left, right in pairwise(items):
@@ -299,11 +307,19 @@ class Circuit:
 
     @classmethod
     def tensor(cls, parts: Iterable[Circuit]) -> Circuit:
-        items = [
-            part
-            for part in parts
-            if not (part.kind == "id" and part.inputs == 0)
-        ]
+        items: list[Circuit] = []
+        identity_wires = 0
+        for part in parts:
+            for item in part.parts if part.kind == "tensor" else (part,):
+                if item.kind == "id":
+                    identity_wires += item.inputs
+                    continue
+                if identity_wires:
+                    items.append(cls.identity(identity_wires))
+                    identity_wires = 0
+                items.append(item)
+        if identity_wires:
+            items.append(cls.identity(identity_wires))
         if not items:
             return cls.identity(0)
         if len(items) == 1:
@@ -352,8 +368,6 @@ def _parse_named_circuit(
 ) -> Circuit:
     name = _identifier(value[key], f"{key} name")
     if key == "gen":
-        if name not in signature:
-            raise ValidationError(f"unknown generator {name!r}")
         return Circuit.generator(signature[name])
     return macro(name)
 
@@ -367,30 +381,43 @@ def _parse_circuit(value: Any, signature: Signature, macro: MacroResolver) -> Ci
         _reject_unknown(value, {"wires", "ops"}, "compact circuit")
         return _parse_compact(value, signature, macro)
 
-    keys = [
-        key
-        for key in ("gen", "id", "perm", "compose", "tensor", "macro")
-        if key in value
-    ]
+    keys = [key for key in ("gen", "id", "perm", "compose", "tensor", "macro") if key in value]
     if len(keys) != 1:
         raise ValidationError(
             "circuit must contain exactly one of gen/id/perm/compose/tensor/macro"
         )
     key = keys[0]
-    _reject_unknown(value, {key}, "circuit")
-    if key == "gen":
-        return _parse_named_circuit(value, key, signature, macro)
+    repeatable = key in {"gen", "macro", "perm"}
+    _reject_unknown(value, {key, "repeat"} if repeatable else {key}, "circuit")
+    if key in {"gen", "macro"}:
+        base = _parse_named_circuit(value, key, signature, macro)
+        return _repeat_circuit(base, value.get("repeat", 1), "circuit")
     if key == "id":
         return Circuit.identity(value["id"])
     if key == "perm":
-        return Circuit.perm(value["perm"])
+        base = Circuit.perm(value["perm"])
+        return _repeat_circuit(base, value.get("repeat", 1), "circuit")
     if key in {"compose", "tensor"}:
         raw_parts = value[key]
         if not _is_sequence(raw_parts):
             raise ValidationError(f"{key} must be an array")
         parts = [_parse_circuit(part, signature, macro) for part in raw_parts]
         return Circuit.compose(parts) if key == "compose" else Circuit.tensor(parts)
-    return _parse_named_circuit(value, key, signature, macro)
+    raise AssertionError(key)
+
+
+_MAX_COMPACT_OPERATIONS = 10_000
+
+
+def _repeat_circuit(circuit: Circuit, value: Any, where: str) -> Circuit:
+    repeat = _natural(value, f"{where} repeat")
+    if repeat == 0:
+        raise ValidationError(f"{where} repeat must be positive")
+    if repeat > _MAX_COMPACT_OPERATIONS:
+        raise ValidationError(f"{where} repeat exceeds {_MAX_COMPACT_OPERATIONS}")
+    if repeat > 1 and circuit.inputs != circuit.outputs:
+        raise ValidationError(f"{where} repeat needs an endomorphism")
+    return Circuit.compose([circuit] * repeat) if repeat > 1 else circuit
 
 
 def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroResolver) -> Circuit:
@@ -400,6 +427,7 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
         raise ValidationError("compact circuit ops must be an array")
     steps: list[Circuit] = []
     current = wires
+    expanded = 0
     for index, op in enumerate(ops):
         if not isinstance(op, Mapping):
             raise ValidationError(f"operation {index} must be an object")
@@ -407,8 +435,14 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
         if len(op_keys) != 1:
             raise ValidationError(f"operation {index} needs exactly one of gen/macro/perm")
         key = op_keys[0]
-        allowed = {key, "on"} if key in {"gen", "macro"} else {key}
+        allowed = {key, "repeat"}
+        if key in {"gen", "macro"}:
+            allowed.add("on")
         _reject_unknown(op, allowed, f"operation {index}")
+        repeat = op.get("repeat", 1)
+        expanded += _natural(repeat, f"operation {index} repeat")
+        if expanded > _MAX_COMPACT_OPERATIONS:
+            raise ValidationError(f"compact circuit exceeds {_MAX_COMPACT_OPERATIONS} operations")
         if key == "perm":
             step = Circuit.perm(op["perm"])
             if step.inputs != current:
@@ -427,15 +461,12 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
                 if isinstance(on, int) and not isinstance(on, bool):
                     if base.inputs != 1:
                         raise ValidationError(
-                            f"operation {index} uses an integer on for a "
-                            f"{base.inputs}-input box"
+                            f"operation {index} uses an integer on for a {base.inputs}-input box"
                         )
                     selected = (on,)
                 else:
                     if not _is_sequence(on):
-                        raise ValidationError(
-                            f"operation {index} needs an on array or unary index"
-                        )
+                        raise ValidationError(f"operation {index} needs an on array or unary index")
                     selected = tuple(on)
             if len(selected) != base.inputs:
                 raise ValidationError(
@@ -449,7 +480,7 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
             if any(i < 0 or i >= current for i in selected):
                 raise ValidationError(f"operation {index} selects a wire outside 0..{current - 1}")
             step = _place_on_wires(base, current, selected)
-        steps.append(step)
+        steps.append(_repeat_circuit(step, repeat, f"operation {index}"))
         current = step.outputs
     return Circuit.compose(steps) if steps else Circuit.identity(wires)
 
@@ -508,7 +539,7 @@ class Theory:
     macros: dict[str, Circuit] = field(default_factory=dict)
     name: str | None = None
     wire_dimension: int = 2
-    source: Any = None
+    source: dict[str, Any] | None = None
 
     @classmethod
     def from_json(cls, value: Any) -> Theory:
@@ -551,9 +582,9 @@ class Theory:
         if name is not None:
             name = _identifier(name, "theory name")
         raw_source = data.get("source")
-        if raw_source is not None and not isinstance(raw_source, (str, Mapping)):
-            raise ValidationError("theory source must be a string or object")
-        source = dict(raw_source) if isinstance(raw_source, Mapping) else raw_source
+        if raw_source is not None and not isinstance(raw_source, Mapping):
+            raise ValidationError("theory source must be an object")
+        source = dict(raw_source) if raw_source is not None else None
         return cls(signature, tuple(equations), macros, name, dimension, source)
 
     def equation(self, equation_id: str) -> Equation:
@@ -568,11 +599,7 @@ def iter_theory_terms(theory: Theory, *extra: Circuit) -> Iterator[Circuit]:
 
     return chain(
         theory.macros.values(),
-        (
-            side
-            for equation in theory.equations
-            for side in (equation.lhs, equation.rhs)
-        ),
+        (side for equation in theory.equations for side in (equation.lhs, equation.rhs)),
         extra,
     )
 
@@ -597,10 +624,7 @@ def iter_circuit_nodes(
 def _parse_macro_definitions(value: Any, signature: Signature) -> dict[str, Circuit]:
     if not isinstance(value, Mapping):
         raise ValidationError("macros must be an object")
-    specs = {
-        _identifier(name, "macro id"): body
-        for name, body in value.items()
-    }
+    specs = {_identifier(name, "macro id"): body for name, body in value.items()}
 
     resolved: dict[str, Circuit] = {}
     visiting: list[str] = []
@@ -670,29 +694,13 @@ def contains_arity_change(
     return analyze_circuit(circuit, checkpoint).changes_arity
 
 
-def primitive_occurrences(circuit: Circuit) -> Counter[str]:
-    """Count primitive generators in a macro-free circuit."""
-
-    return analyze_circuit(circuit).occurrence_counter()
-
-
-def inversion_count(order: Sequence[int]) -> int:
-    """Number of inversions in a permutation."""
-
-    parsed = Circuit.perm(order).order
-    return sum(left > right for i, left in enumerate(parsed) for right in parsed[i + 1 :])
-
-
 def permutation_parity(order: Sequence[int]) -> int:
     """Return 0 for an even permutation and 1 for an odd one."""
 
-    return inversion_count(order) & 1
-
-
-def structural_permutation_parity(circuit: Circuit) -> int:
-    """XOR the inversion parity of all explicit structural permutations."""
-
-    return analyze_circuit(circuit).permutation_parity
+    parsed = Circuit.perm(order).order
+    return (
+        sum(left > right for index, left in enumerate(parsed) for right in parsed[index + 1 :]) & 1
+    )
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

@@ -20,6 +20,7 @@ minimality-auto THEORY.json --auto
 minimality-auto THEORY.json --presence-checking
 minimality-auto THEORY.json --counting --max-modulus 8
 minimality-auto THEORY.json --finite-model --max-permutation-degree 5
+minimality-auto THEORY.json --affine-lift --max-affine-lift-prime 5
 minimality-auto THEORY.json --amalgam --max-amalgam-prime 11
 minimality-auto THEORY.json --spin-cover
 minimality-auto THEORY.json --block-normal-form
@@ -65,25 +66,32 @@ equivalent.
 
 `generators` and `macros` are objects. A generator type `a` means the
 endomorphism `[a, a]`; use `[inputs, outputs]` only for an arity-changing
-generator. Each macro value is its circuit body, whose type is inferred.
+generator. Use the bare type when no matrix is supplied. Each macro value is
+its circuit body, whose type is inferred.
 Terms use `gen`, `macro`, `id`, `perm`, `compose`, or `tensor`; composition is
 listed in execution order.
 
-Matrices are optional. They are either dense arrays or
-`{"diagonal": [...]}`, with numeric or complex-string entries such as `"1j"`.
-They are used by the amalgam, block-normal-form, determinant, substitution,
-and Spin-cover heuristics. More examples are in [`theories/`](theories).
+Matrices are optional. They are dense arrays, `{"diagonal": [...]}`, or
+`{"permutation": [...]}` where entry `i` is the output basis index of input
+basis vector `i`. Entries may be numbers or complex strings such as `"1j"`.
+Matrices are used by the affine-lift, amalgam, block-normal-form, determinant,
+substitution, and Spin-cover heuristics. More examples are in
+[`theories/`](theories).
 
 In compact `{"wires":...,"ops":[...]}` circuits, `on` is optional for
 nullary and whole-register operations; a unary placement may use `on: 2`
-instead of `on: [2]`.
+instead of `on: [2]`. An endomorphic generator, macro, or permutation may use
+`"repeat": n`.
 
 Floating-point results are shown as `[numerical]` and serialized with
 `"certified": false`; exact combinatorial results are shown as `[found]`.
+The affine-lift heuristic requires exact `0`/`1` basis-permutation matrices.
 
 TODO: optionally support slower SymPy arithmetic for exact matrix certificates.
 
-The finite-permutation heuristic currently supports endomorphic signatures only. Its PROP constraints are summarized in [`docs/permutation-models.md`](docs/permutation-models.md).
+The finite-permutation and affine-lift heuristics currently support endomorphic
+signatures only. Their fixed-arity PROP constraints are summarized in
+[`docs/permutation-models.md`](docs/permutation-models.md).
 
 ## Test
 

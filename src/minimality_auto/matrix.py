@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from functools import cache
 from typing import Any
 
 import numpy as np
@@ -12,15 +13,80 @@ from .core import (
     Signature,
     ValidationError,
     _matrix_shape_matches,
-    _matrix_tuple,
     _natural,
 )
 
 
-def parse_complex_matrix(value: Any) -> np.ndarray:
-    """Parse a JSON matrix as a NumPy complex array."""
+def basis_digits(index: int, wires: int, dimension: int) -> tuple[int, ...]:
+    """Decode a computational-basis index, most-significant wire first."""
 
-    return np.asarray(_matrix_tuple(value), dtype=np.complex128)
+    result = [0] * wires
+    for position in range(wires - 1, -1, -1):
+        index, result[position] = divmod(index, dimension)
+    return tuple(result)
+
+
+def basis_index(values: Iterable[int], dimension: int) -> int:
+    """Encode computational-basis digits, most-significant wire first."""
+
+    result = 0
+    for value in values:
+        result = result * dimension + value
+    return result
+
+
+def basis_permutation(
+    value: Any,
+    checkpoint: Callable[[], None] | None = None,
+) -> tuple[int, ...] | None:
+    """Extract an exact column-to-row permutation from a 0/1 matrix."""
+
+    try:
+        matrix = np.asarray(value)
+    except (TypeError, ValueError):
+        return None
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or not matrix.size:
+        return None
+
+    result: list[int] = []
+    seen: set[int] = set()
+    for column in range(matrix.shape[1]):
+        if checkpoint is not None and column % 128 == 0:
+            checkpoint()
+        output = -1
+        for row in range(matrix.shape[0]):
+            entry = matrix[row, column]
+            if entry == 0:
+                continue
+            if entry != 1 or output >= 0:
+                return None
+            output = row
+        if output < 0 or output in seen:
+            return None
+        seen.add(output)
+        result.append(output)
+    return tuple(result)
+
+
+def basis_wire_permutation(
+    order: Sequence[int],
+    wire_dimension: int,
+    checkpoint: Callable[[], None] | None = None,
+) -> tuple[int, ...]:
+    """Return the column-to-row routing induced by a wire permutation."""
+
+    order = tuple(order)
+    if sorted(order) != list(range(len(order))):
+        raise ValidationError(f"not a wire permutation: {list(order)}")
+    result = []
+    for column in range(wire_dimension ** len(order)):
+        if checkpoint is not None and column % 256 == 0:
+            checkpoint()
+        digits = basis_digits(column, len(order), wire_dimension)
+        result.append(
+            basis_index((digits[source] for source in order), wire_dimension)
+        )
+    return tuple(result)
 
 
 def permutation_matrix(
@@ -29,15 +95,10 @@ def permutation_matrix(
 ) -> np.ndarray:
     """Return the basis permutation whose output axes follow ``order``."""
 
-    size = wire_dimension ** len(order)
-    columns = (
-        np.arange(size)
-        .reshape((wire_dimension,) * len(order))
-        .transpose(order)
-        .ravel()
-    )
+    routing = basis_wire_permutation(order, wire_dimension)
+    size = len(routing)
     result = np.zeros((size, size), dtype=np.complex128)
-    result[np.arange(size), columns] = 1
+    result[np.asarray(routing), np.arange(size)] = 1
     return result
 
 
@@ -56,14 +117,8 @@ class MatrixSemantics:
             raise ValidationError("wire dimension must be positive")
         self.overrides = dict(overrides or {})
 
-    def evaluate(
-        self,
-        circuit: Circuit,
-        overrides: Mapping[str, Any] | None = None,
-    ) -> Any:
-        matrices = dict(self.overrides)
-        matrices.update(overrides or {})
-        cache: dict[Circuit, Any] = {}
+    def evaluate(self, circuit: Circuit) -> Any:
+        matrices = self.overrides
         d = self.wire_dimension
 
         def generator_matrix(node: Circuit) -> Any:
@@ -73,10 +128,7 @@ class MatrixSemantics:
                 raw = self.signature[node.name].matrix
             if raw is None:
                 raise ValidationError(f"no matrix supplied for generator {node.name!r}")
-            matrix = np.asarray(
-                raw if hasattr(raw, "shape") else _matrix_tuple(raw),
-                dtype=np.complex128,
-            )
+            matrix = np.asarray(raw, dtype=np.complex128)
             if not _matrix_shape_matches(
                 matrix.shape,
                 d,
@@ -89,9 +141,8 @@ class MatrixSemantics:
                 )
             return matrix
 
+        @cache
         def run(node: Circuit) -> Any:
-            if node in cache:
-                return cache[node]
             if node.kind == "gen":
                 result = generator_matrix(node)
             elif node.kind == "id":
@@ -108,7 +159,6 @@ class MatrixSemantics:
                     result = run(part) @ result
             else:
                 raise AssertionError(f"unknown circuit kind {node.kind!r}")
-            cache[node] = result
             return result
 
         return run(circuit)

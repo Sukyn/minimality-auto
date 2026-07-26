@@ -4,9 +4,8 @@ from collections.abc import Iterator
 from itertools import combinations
 from typing import Any
 
-from ..core import primitive_occurrences
 from ..search import CandidateModel, Deadline
-from .common import primitive_names
+from .common import circuit_analysis, primitive_names
 
 
 def candidates(
@@ -29,23 +28,17 @@ def candidates(
     if bound > len(names):
         return
 
-    def occurrences(term: Any) -> Any:
-        return (
-            context.occurrences_for(term)
-            if context is not None
-            else primitive_occurrences(term)
-        )
-
     for selected_tuple in combinations(names, bound):
         deadline.check()
         selected = frozenset(selected_tuple)
 
         def evaluate(term: Any, selected: frozenset[str] = selected) -> bool:
-            return not selected.isdisjoint(occurrences(term))
+            occurrences = circuit_analysis(term, context).occurrences
+            return not selected.isdisjoint(name for name, _ in occurrences)
 
         label = ", ".join(selected_tuple)
         yield CandidateModel(
             description=f"presence of {{{label}}}",
             parameters={"generators": list(selected_tuple)},
-            evaluator=evaluate,
+            evaluate=evaluate,
         )

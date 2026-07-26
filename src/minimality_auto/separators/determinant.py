@@ -9,11 +9,9 @@ import numpy as np
 
 from ..core import (
     _wire_size_matches,
-    primitive_occurrences,
-    structural_permutation_parity,
 )
 from ..search import CandidateModel, Deadline, NotApplicable
-from .common import primitive_names, wire_parity_is_preserved
+from .common import circuit_analysis, primitive_names, wire_parity_is_preserved
 
 PHASE_TOLERANCE = 1e-8
 
@@ -103,14 +101,10 @@ def candidates(
         epsilon = 0.0
 
     def evaluate(term: Any) -> float:
-        if context is None:
-            counts = primitive_occurrences(term)
-            parity = structural_permutation_parity(term)
-        else:
-            counts = context.occurrences_for(term)
-            parity = context.parity_for(term)
+        analysis = circuit_analysis(term, context)
+        counts = analysis.occurrence_counter()
         value = sum(counts[name] * phase for name, phase in weights.items())
-        value += parity * epsilon
+        value += analysis.permutation_parity * epsilon
         return value % math.tau
 
     def equal(left: float, right: float) -> bool:
@@ -136,7 +130,7 @@ def candidates(
             "zero_weight_generators": defaulted,
             "phase_tolerance": PHASE_TOLERANCE,
         },
-        evaluator=evaluate,
-        equality=equal,
+        evaluate=evaluate,
+        equal=equal,
         certified=False,
     )

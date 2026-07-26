@@ -8,5 +8,3 @@ __all__ = [
     "ValidationError",
     "load_theory",
 ]
-
-__version__ = "0.1.0"

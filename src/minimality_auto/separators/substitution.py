@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import suppress
 from itertools import permutations
-from math import isqrt
 from typing import Any
 
 import numpy as np
@@ -11,12 +10,15 @@ import numpy as np
 from ..core import (
     Circuit,
     _wire_size_matches,
-    analyze_circuit,
-    primitive_occurrences,
 )
 from ..matrix import evaluate_matrix
 from ..search import CandidateModel, Deadline, NotApplicable
-from .common import projectively_equal, retained_equations
+from .common import (
+    bounded_power,
+    circuit_analysis,
+    projectively_equal,
+    retained_equations,
+)
 
 DEFAULT_MAX_MATRIX_ENTRIES = 1_000_000
 PROJECTIVE_TOLERANCE = 1e-8
@@ -33,10 +35,6 @@ def _fingerprint(matrix: np.ndarray) -> bytes:
     rounded.real[np.abs(rounded.real) < 1e-12] = 0.0
     rounded.imag[np.abs(rounded.imag) < 1e-12] = 0.0
     return rounded.tobytes()
-
-
-def _arity(item: Any) -> tuple[int, int]:
-    return int(item.inputs), int(item.outputs)
 
 
 def _placements(
@@ -85,10 +83,7 @@ def _matrix_budget_allows(
 ) -> bool:
     if max_matrix_entries < 1:
         return False
-    limit = isqrt(max_matrix_entries)
-    if wire_dimension == 1:
-        return limit >= 1
-    return wires <= limit.bit_length() and wire_dimension**wires <= limit
+    return bounded_power(wire_dimension, 2 * wires, max_matrix_entries) is not None
 
 
 def _replacement_terms(
@@ -195,7 +190,7 @@ def candidates(
         raw = getattr(generator, "matrix", None)
         if raw is None:
             continue
-        source, target_arity = _arity(generator)
+        source, target_arity = generator.type
         try:
             matrix = np.asarray(raw, dtype=complex)
         except (TypeError, ValueError):
@@ -210,46 +205,44 @@ def candidates(
     usable_generators = frozenset(usable)
 
     operations: list[_Operation] = [
-        ("gen", generator.name, *_arity(generator))
-        for generator in sorted(
-            theory.signature.values(), key=lambda item: item.name
-        )
+        ("gen", generator.name, *generator.type)
+        for generator in generators
         if generator.name in usable_generators
     ]
     for name, body in sorted(theory.macros.items()):
         deadline.check()
-        maximum_wires = analyze_circuit(body).maximum_wires
+        analysis = circuit_analysis(body, context)
         if (
-            set(primitive_occurrences(body))
-            <= usable_generators
+            {name for name, _ in analysis.occurrences} <= usable_generators
             and _matrix_budget_allows(
                 wire_dimension,
-                maximum_wires,
+                analysis.maximum_wires,
                 max_substitution_matrix_entries,
             )
         ):
-            operations.append(("macro", name, *_arity(body)))
+            operations.append(("macro", name, *body.type))
     operation_records = tuple(operations)
 
     required: set[str] = set()
     for equation in checked:
         deadline.check()
-        if any(
-            not _matrix_budget_allows(
+        for term in (equation.lhs, equation.rhs):
+            analysis = circuit_analysis(term, context)
+            if not _matrix_budget_allows(
                 wire_dimension,
-                analyze_circuit(term).maximum_wires,
+                analysis.maximum_wires,
                 max_substitution_matrix_entries,
-            )
-            for term in (equation.lhs, equation.rhs)
-        ):
-            return
-        required.update(primitive_occurrences(equation.lhs))
-        required.update(primitive_occurrences(equation.rhs))
-    target_names = set(primitive_occurrences(target.lhs))
-    target_names.update(primitive_occurrences(target.rhs))
+            ):
+                return
+            required.update(name for name, _ in analysis.occurrences)
+    target_names = {
+        name
+        for term in (target.lhs, target.rhs)
+        for name, _ in circuit_analysis(term, context).occurrences
+    }
 
     for generator in generators:
-        source, target_arity = _arity(generator)
+        source, target_arity = generator.type
         if generator.name not in target_names:
             continue
         # A single override can repair at most this generator's missing matrix.
@@ -311,8 +304,8 @@ def candidates(
                     "depth": depth,
                     "matrix_tolerance": PROJECTIVE_TOLERANCE,
                 },
-                evaluator=evaluate,
-                equality=lambda left, right: projectively_equal(
+                evaluate=evaluate,
+                equal=lambda left, right: projectively_equal(
                     left, right, PROJECTIVE_TOLERANCE
                 ),
                 key=(generator.name, fingerprint),
