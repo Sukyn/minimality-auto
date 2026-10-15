@@ -1,7 +1,6 @@
 """Adversarial checks for the fixed-ambient Spin certificate.
 
-These examples are deliberately ordinary PROP equalities.  A Spin lift that
-ignored the ambient-wire guards would incorrectly claim to separate them.
+The ambient-wire guards ensure that Spin lifts preserve these PROP equalities.
 """
 
 from dataclasses import replace
@@ -103,14 +102,14 @@ def test_low_arity_spin_sign_cannot_separate_prop_interchange():
         gate_width=2,
     )
 
-    # The ordinary matrices commute, but their chosen Spin lifts anticommute:
+    # The commuting matrices have anticommuting Spin lifts:
     # p=q=4 and their minus spaces meet in one direction, so pq-t=15 is odd.
     data = _commutator_data(theory, first, second)
     assert data == (4, 4, 1)
     assert spin._commutator_sign(data) == -1
 
-    # This equation is forced by PROP interchange, so that sign is not a valid
-    # separation.  The fixed-ambient separator correctly refuses arity four.
+    # PROP interchange forces this equality, so the separator rejects the
+    # arity-four lift that gives it a negative sign.
     assert list(
         spin.candidates(
             theory,
@@ -127,8 +126,8 @@ def test_one_spare_wire_removes_the_false_interchange_sign():
         gate_width=2,
     )
 
-    # One untouched wire doubles all three dimensions.  The exponent becomes
-    # 8*8-2=62, so the lifts now commute just as PROP interchange requires.
+    # One untouched wire doubles all three dimensions.  The even exponent
+    # 8*8-2=62 makes the lifts commute, as PROP interchange requires.
     data = _commutator_data(theory, first, second)
     assert data == (8, 8, 2)
     assert spin._commutator_sign(data) == 1
@@ -165,8 +164,8 @@ def test_one_spare_wire_accepts_composition_tensor_and_routing_equalities():
         (interchange, routed),
     )
 
-    # Both are four-wire PROP equalities.  The first has negative local Spin
-    # sign, while the second also exercises composition and structural routing.
+    # The four-wire interchange equality has negative local Spin sign.
+    # The routed equality checks composition with structural permutations.
     assert spin._commutator_sign(_commutator_data(theory, first, second)) == -1
     for equation in (interchange, routed):
         assert spin._close(
@@ -254,9 +253,9 @@ def test_spin_rejects_wide_primitives_that_fill_the_ambient_tensor():
     assert data == (8, 8, 1)
     assert spin._commutator_sign(data) == -1
 
-    # Each primitive separately has the three complement wires needed by the
-    # lift, but two such primitives can occupy disjoint halves.  Their negative
-    # sign would violate interchange, so the pairwise width guard must reject.
+    # Each three-wire primitive has three complement wires in this tensor.
+    # Together they fill disjoint halves and have negative commutator sign,
+    # so the pairwise width guard rejects this interchange violation.
     with pytest.raises(NotApplicable, match="too few wires for PROP interchange"):
         list(
             spin.candidates(
@@ -293,9 +292,9 @@ def test_spin_rejects_a_primitive_with_only_two_complement_wires():
 @pytest.mark.parametrize(
     ("first", "second"),
     [
-        # Odd-dimensional minus spaces do not define Spin elements.
+        # An odd-dimensional minus space gives determinant -1.
         (np.diag((-1, 1)), np.diag((-1, 1))),
-        # These are reflections, but they do not commute.
+        # These reflections anticommute.
         (np.diag((-1, 1)), np.asarray(((0, 1), (1, 0)))),
     ],
 )

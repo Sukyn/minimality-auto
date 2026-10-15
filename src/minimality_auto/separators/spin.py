@@ -214,10 +214,10 @@ def candidates(
             raise NotApplicable("too few complement wires for the Spin lift")
     for index, left_width in enumerate(primitive_widths):
         for right_width in primitive_widths[index:]:
-            # The lift exponent is
-            # 2**complement * (2**arity - 1), so it is odd exactly when
-            # disjoint supports fill every wire.  Overlapping supports impose
-            # no PROP-interchange equation.
+            # For disjoint supports, the commutator exponent is
+            # 2**(arity - left_width - right_width) * (2**arity - 1).
+            # It is odd when the supports fill all wires; PROP interchange
+            # requires their lifts to commute.
             if left_width + right_width == arity:
                 raise NotApplicable("too few wires for PROP interchange")
 
@@ -245,14 +245,13 @@ def candidates(
                 "another retained equation is too large for this Spin certificate"
             )
         if complement >= 1:
-            # With one outside wire, every local primitive is already even:
-            # the ambient primitive guard gives
-            # 2**((arity - 1) - primitive_width), a multiple of four, local
-            # copies.  The same holds for adjacent SWAP.  Hence the two-block
-            # lift is multiplicative for arbitrary compositions, tensors and
-            # permutations; it also sends the two possible local lifts u and
-            # -u to the same value.  Ordinary matrix equality is sufficient.
-            # More outside wires are the usual block-lift case.
+            # With one outside wire, the width guard gives each primitive
+            # (including adjacent SWAP) 2**((arity - 1) - primitive_width)
+            # local copies, a multiple of four, so the local action is even.
+            # The two-block lift is multiplicative under composition, tensor
+            # and permutation, and identifies u with -u. Equal matrices
+            # therefore have equal block lifts. Additional outside wires
+            # repeat this block lift.
             left = matrix(equation.lhs)
             right = matrix(equation.rhs)
             deadline.check()

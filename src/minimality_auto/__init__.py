@@ -1,4 +1,4 @@
-"""CLI-first independence-separation searches for PROP presentations."""
+"""Independence searches for PROP presentations."""
 
 from .core import PropError, Theory, ValidationError, load_theory
 

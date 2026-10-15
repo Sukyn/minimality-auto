@@ -138,9 +138,8 @@ def templates(
             if abs(real - float(rational)) <= ENTRY_TOLERANCE:
                 return _Scalar("rational", rational.numerator, rational.denominator)
 
-        # Non-rational entries are pattern variables.  Values that differ only
-        # by a sign share a variable; no embedding of C into F_p is assumed.
-        # Every candidate is subsequently checked by exact F_p arithmetic.
+        # Treat non-rational entries as free F_p scalars, sharing a variable
+        # for values equal up to sign. Check each candidate by exact F_p arithmetic.
         sign = -1 if (
             value.real < -ENTRY_TOLERANCE
             or (

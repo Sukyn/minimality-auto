@@ -84,8 +84,7 @@ def _search_worker(sender: Any, theory: Theory, options: dict[str, Any]) -> None
             on_witness=lambda witness: sender.send(("witness", witness)),
         )
         sender.send(("result", report))
-    # The parent must receive internal failures instead of mistaking them for
-    # a timeout. This process boundary is the one intentional broad catch.
+    # Forward worker exceptions so the parent can report the search failure.
     except Exception as error:  # noqa: BLE001
         sender.send(("error", error))
     finally:

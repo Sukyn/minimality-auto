@@ -170,6 +170,6 @@ def evaluate_matrix(
     wire_dimension: int = 2,
     overrides: Mapping[str, Any] | None = None,
 ) -> Any:
-    """Convenience wrapper around :class:`MatrixSemantics`."""
+    """Evaluate a circuit over the given signature and wire dimension."""
 
     return MatrixSemantics(signature, wire_dimension, overrides).evaluate(circuit)

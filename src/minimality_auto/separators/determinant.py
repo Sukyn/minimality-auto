@@ -37,7 +37,7 @@ def _phase(matrix: np.ndarray, dimension: int, arity: int) -> float:
 
 
 def _scale(dimension: int, exponent: int) -> float | None:
-    """Return d**exponent when it has a useful finite float representation."""
+    """Return ``dimension**exponent`` as a float within the size bound."""
     if dimension == 1:
         return 1.0
     if exponent < 0:
@@ -73,9 +73,8 @@ def candidates(
         if name not in active:
             continue
         if source != target_arity or matrix is None:
-            # An arbitrary zero weight is a sound extension of the phase
-            # character.  This lets known square matrices coexist with
-            # rectangular or intentionally matrix-free generators.
+            # The additive model accepts arbitrary generator weights, so these
+            # generators receive zero.
             weights[name] = 0.0
             defaulted.append(name)
             continue
@@ -96,8 +95,7 @@ def candidates(
     padding_is_odd = k == 2 or dimension % 2 == 1
     epsilon = math.pi if base_swap_is_odd and padding_is_odd else 0.0
     if epsilon and not wire_parity_is_preserved(theory, target.lhs, target.rhs):
-        # A sign-valued symmetry is not natural around parity-changing maps.
-        # The trivial symmetry still gives a valid additive PROP model.
+        # Parity-changing maps require the trivial symmetry for naturality.
         epsilon = 0.0
 
     def evaluate(term: Any) -> float:

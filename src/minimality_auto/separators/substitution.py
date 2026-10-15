@@ -245,7 +245,7 @@ def candidates(
         source, target_arity = generator.type
         if generator.name not in target_names:
             continue
-        # A single override can repair at most this generator's missing matrix.
+        # Every other required generator needs a usable matrix for evaluation.
         if not (required - {generator.name}) <= usable_generators:
             continue
         if not _matrix_budget_allows(

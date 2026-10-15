@@ -1,8 +1,8 @@
 # Idea and original proof by Alexandre Clement.
 #
-# TODO: This argument is written to show the necessity of a three-wire rule
-# when all generators have at most two wires.  It may generalize to show the
-# necessity of a four-wire rule in theories with generators such as Toffoli.
+# The proof shows that a three-wire rule is necessary when generators act
+# on at most two wires.
+# TODO: Investigate a four-wire analogue for generators such as Toffoli.
 
 """Three-wire block-normal-form separation evidence.
 
@@ -215,7 +215,7 @@ def _routing_paths(
     output_layout: Layout,
     deadline: Deadline,
 ) -> tuple[tuple[_Step, ...], ...]:
-    """Find every minimum-block adjacent routing, up to a safe cap."""
+    """Find minimum-block adjacent routings, up to MAX_ROUTING_PATHS."""
 
     State = tuple[int, Layout, int | None]
     start: State = (0, (0, 1, 2), None)
@@ -318,10 +318,9 @@ def _path_summary(
 ) -> tuple[dict[str, Any] | None, bool]:
     """Return ``(summary, canonical)``.
 
-    A canonical route may still be unsupported when a block contains several
-    boxes; that is represented by ``(None, True)``.  Routes with an internal
-    generatorless block are not decompositions of the maximal-block form and
-    are simply discarded.
+    A block with several boxes yields ``(None, True)``.  Discard routes whose
+    generatorless blocks fall outside the permitted boundary positions of
+    the maximal-block form.
     """
 
     groups: list[list[_Step]] = []

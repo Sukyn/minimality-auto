@@ -89,8 +89,7 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
         tokens,
     )
 
-    # Both factor embeddings preserve every multiplication, not just the
-    # handful of relations used by a particular input theory.
+    # Each factor embedding preserves its full multiplication table.
     for left, right in product(range(base.order), repeat=2):
         assert model.evaluate_word((c_tokens[left], c_tokens[right])) == (
             model.evaluate_word((c_tokens[base.multiply(left, right)],))
@@ -100,14 +99,14 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
             model.evaluate_word((d_tokens[second.multiply(left, right)],))
         )
 
-    # The two copies of the shared C_3 subgroup are identified exactly.
+    # Both embeddings agree on the shared C_3 subgroup.
     for value in shared:
         assert model.evaluate_word((c_tokens[value],)) == model.evaluate_word(
             (d_tokens[amalgam._DElement(value, 0)],)
         )
 
-    # Moving the shared head out of a D syllable may trigger reductions with
-    # both neighbours.  Both spellings must therefore have one normal form.
+    # Extracting a D syllable's shared head can reduce both neighbours;
+    # the expanded word must have the same normal form.
     for left, middle, right in product(range(base.order), d_values, range(base.order)):
         word = (c_tokens[left], d_tokens[middle], c_tokens[right])
         expanded = (

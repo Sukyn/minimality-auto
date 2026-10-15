@@ -88,7 +88,7 @@ def projectively_equal(
     right: np.ndarray,
     tolerance: float = 1e-8,
 ) -> bool:
-    """Compare finite numerical matrices up to a phase and tolerance."""
+    """Compare finite matrices up to a global phase and the given tolerance."""
 
     left = np.asarray(left, dtype=complex)
     right = np.asarray(right, dtype=complex)
@@ -118,7 +118,7 @@ def projectively_equal(
 
 
 def numerical_matrix(theory: Any, term: Any, purpose: str) -> np.ndarray:
-    """Evaluate a finite matrix for a conservative numerical heuristic."""
+    """Evaluate a term as a finite complex matrix for numerical search."""
 
     try:
         value = np.asarray(
@@ -137,11 +137,10 @@ def numerical_matrix(theory: Any, term: Any, purpose: str) -> np.ndarray:
 
 
 def wire_parity_is_preserved(theory: Any, *extra_terms: Circuit) -> bool:
-    """Whether the sign character is natural around every supplied generator.
+    """Check the parity condition for the permutation sign character.
 
-    Naturality around ``f: m -> n`` requires input and output wire counts to
-    have the same parity. Requiring every generator to be an endomorphism would
-    be unnecessarily restrictive.
+    Naturality around ``f: m -> n`` requires ``m % 2 == n % 2`` for every
+    generator.
     """
 
     def preserves(root: Circuit) -> bool:
@@ -163,7 +162,7 @@ def require_endomorphic_theory(
     deadline: Deadline,
     context: Any = None,
 ) -> None:
-    """Guard fixed-arity interpretations against non-endomorphic PROP syntax."""
+    """Require equal input and output arities in all generators and terms."""
 
     if context is not None:
         deadline.check()

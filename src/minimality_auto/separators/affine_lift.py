@@ -114,7 +114,7 @@ def _separating_vector(
     prime: int,
     deadline: Deadline,
 ) -> Vector | None:
-    """Find a vector killed by every source row but detected by a target row."""
+    """Find a vector in the source kernel with a nonzero target-row product."""
 
     rows = [list(row) for row in source if any(row)]
     pivots: list[int] = []
@@ -172,7 +172,7 @@ def _evaluate_word(
     prime: int,
     deadline: Deadline,
 ) -> tuple[Permutation, Vector]:
-    """Evaluate a resolved affine word independently of the symbolic solver."""
+    """Evaluate an affine word directly from its permutations and translations."""
 
     dimension = len(next(iter(assignment.values())))
     base = tuple(range(dimension))
@@ -231,8 +231,7 @@ def candidates(
     )
 
     bases, native = _base_assignment(theory, presentation, deadline)
-    # A canonical variable order makes the chosen nullspace witness independent
-    # of generator declaration order and usually keeps it sparse.
+    # Sorting makes witness selection reproducible across declaration orders.
     variables = tuple(sorted(presentation.variables))
     if not variables:
         return

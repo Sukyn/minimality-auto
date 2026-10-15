@@ -112,7 +112,7 @@ def test_scalar_centrality_holds_for_every_small_prop_assignment():
 
 
 def test_every_small_mixed_width_assignment_respects_prop_laws():
-    """Exercise the complete fixed-arity presentation, not one paper fragment."""
+    """Check mixed-width PROP laws in every valid degree-three assignment."""
 
     theory = Theory.from_json(
         {
@@ -201,8 +201,7 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
             ) == finite_model._evaluate(
                 _compiled(rhs, theory, 3), assignment, degree
             )
-        # Interchange must also hold after every possible wire routing, not
-        # only for the canonical left/right placement used in the relation.
+        # Check interchange for every ordered placement of the binary box.
         for binary_wires in permutations(range(3), 2):
             unary_wire = tuple(
                 wire for wire in range(3) if wire not in binary_wires

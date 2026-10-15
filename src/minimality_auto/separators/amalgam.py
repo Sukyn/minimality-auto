@@ -1,8 +1,8 @@
 """Search finite factors and separate equations in their free amalgam.
 
-Generator matrices supply only a sparsity/scalar template.  Small prime-field
-assignments, factor partitions, shared subgroups, and conjugation actions are
-all discovered from the input theory and then checked exactly.
+Generator matrices supply sparsity and scalar templates. The search enumerates
+small prime-field assignments and factor partitions, derives shared subgroups
+and conjugation actions, and checks the retained equations exactly.
 """
 
 from __future__ import annotations

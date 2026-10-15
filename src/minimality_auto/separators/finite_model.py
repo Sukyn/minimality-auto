@@ -229,8 +229,8 @@ def _find_assignment(
         _, _, _, _, variable, values = min(choices, key=lambda choice: choice[:4])
         return variable, values
 
-    # Use an explicit backtracking stack.  Large, otherwise straightforward
-    # presentations can contain more generators than Python's recursion limit.
+    # An explicit stack handles presentations with more generators than
+    # Python's recursion limit.
     frames: list[tuple[Token, tuple[Permutation, ...], int]] = []
 
     def advance() -> bool:

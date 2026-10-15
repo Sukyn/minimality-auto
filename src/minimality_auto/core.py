@@ -22,7 +22,7 @@ class PropError(ValueError):
 
 
 class ValidationError(PropError):
-    """Raised when JSON is well formed but not a typed PROP expression."""
+    """Raised for JSON that violates PROP syntax or typing rules."""
 
 
 def _reject_unknown(value: Mapping[str, Any], allowed: set[str], where: str) -> None:
@@ -42,7 +42,7 @@ def _natural(value: Any, where: str) -> int:
 
 
 def _wire_size_matches(size: int, dimension: int, wires: int) -> bool:
-    """Check ``size == dimension**wires`` without constructing a hostile integer."""
+    """Check ``size == dimension**wires``, bounding ``wires`` by ``size.bit_length()``."""
 
     if size < 1 or dimension < 1 or wires < 0:
         return False
@@ -191,8 +191,8 @@ class Signature(Mapping[str, Generator]):
         return len(self._generators)
 
     def __contains__(self, name: object) -> bool:
-        # Mapping.__contains__ probes through __getitem__, which deliberately
-        # turns a missing lookup into a user-facing ValidationError.
+        # Use dictionary membership because __getitem__ raises ValidationError
+        # for unknown generator names.
         return name in self._generators
 
     def get(self, name: str, default: Any = None) -> Generator | Any:
@@ -486,7 +486,7 @@ def _parse_compact(value: Mapping[str, Any], signature: Signature, macro: MacroR
 
 
 def _place_on_wires(base: Circuit, wires: int, selected: tuple[int, ...]) -> Circuit:
-    """Lift a generator to selected positions in a deterministic compact syntax.
+    """Place a box using the compact circuit syntax's wire-routing rules.
 
     Selected wires are fed to the box in ``on`` order. Endomorphism outputs
     return to the corresponding selected positions. For arity-changing boxes,
@@ -608,7 +608,7 @@ def iter_circuit_nodes(
     circuit: Circuit,
     checkpoint: Callable[[], None] | None = None,
 ) -> Iterator[Circuit]:
-    """Iterate over a circuit tree without recursion."""
+    """Traverse a circuit tree with an explicit stack."""
 
     pending = [circuit]
     visited = 0
@@ -689,7 +689,7 @@ def contains_arity_change(
     circuit: Circuit,
     checkpoint: Callable[[], None] | None = None,
 ) -> bool:
-    """Whether a term contains any non-endomorphic subterm."""
+    """Return whether any subterm changes the number of wires."""
 
     return analyze_circuit(circuit, checkpoint).changes_arity
 
@@ -717,7 +717,7 @@ def _reject_nonfinite_constant(value: str) -> None:
 
 
 def load_json(path: str | Path) -> Any:
-    """Load JSON while rejecting duplicate keys and non-finite numbers."""
+    """Load JSON, enforcing unique keys and rejecting NaN/Infinity literals."""
 
     try:
         with Path(path).open("r", encoding="utf-8") as handle:

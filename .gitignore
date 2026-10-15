@@ -1,4 +1,4 @@
-# Keep this repository intentionally small: ignore everything by default.
+# Ignore files by default; include the project files listed below.
 *
 
 # Repository metadata and installation instructions.
@@ -11,7 +11,7 @@
 !docs/**/
 !docs/**/*.md
 
-# Python tool source code only (never bytecode or cache directories).
+# Python source files.
 !src/
 !src/**/
 !src/**/*.py

@@ -249,7 +249,7 @@ class _ResolvedStrategy:
     eager_bound: int = -1
 
 
-# Small eager bounds keep a costly strategy from hiding simpler witnesses.
+# Eager bounds give each strategy a small search before larger bounds run.
 STRATEGY_SPECS = (
     StrategySpec(
         "presence",
@@ -370,7 +370,11 @@ def _relevant_equations(
 
 
 def relevant_equations(theory: Theory, target: Equation) -> list[Equation]:
-    """Rules to validate, with an arity shortcut for endomorphic theories."""
+    """Select the retained equations required to validate a candidate.
+
+    Endomorphic targets in endomorphic theories need equations up to the
+    target arity; other cases need every retained equation.
+    """
     return _relevant_equations(theory, target, endomorphic=_theory_is_endomorphic(theory))
 
 
@@ -469,7 +473,7 @@ def _strategy_specs(
 def _search_schedule(
     specs: Mapping[str, _ResolvedStrategy],
 ) -> Iterator[tuple[int, str, _ResolvedStrategy]]:
-    """Try small cheap models before entering any opaque expensive search."""
+    """Run each strategy's eager bounds, then advance all strategies by bound."""
 
     scheduled: set[tuple[str, int]] = set()
     for name, spec in specs.items():
