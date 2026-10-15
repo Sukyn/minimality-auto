@@ -90,8 +90,7 @@ The affine-lift heuristic requires exact `0`/`1` basis-permutation matrices.
 TODO: optionally support slower SymPy arithmetic for exact matrix certificates.
 
 The finite-permutation and affine-lift heuristics currently support endomorphic
-signatures only. Their fixed-arity PROP constraints are summarized in
-[`docs/permutation-models.md`](docs/permutation-models.md).
+signatures only.
 
 ## Test
 
