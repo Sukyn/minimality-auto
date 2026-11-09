@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from itertools import combinations
 from typing import Any
 
-from ..search import CandidateModel, Deadline
+from ..search_types import CandidateModel, Deadline
 from .common import circuit_analysis, primitive_names
 
 

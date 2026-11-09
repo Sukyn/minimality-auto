@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from minimality_auto.core import Theory
-from minimality_auto.search import Separation, search_theory
+from minimality_auto.search import SearchReport, Separation, search_theory
 from minimality_auto.separators import counting, determinant, spin
 
 
@@ -83,6 +83,11 @@ def test_each_strategy_stops_at_its_own_bound(monkeypatch):
         {"max_spin_matrix_dimension": 0},
         {"max_block_matrix_dimension": 0},
         {"max_block_exact_states": 0},
+        {"max_matrix_dimension": 0},
+        {"max_matrix_prime": 1},
+        {"max_matrix_entries": 0},
+        {"max_transformation_degree": 1},
+        {"model_timeout_ms": 0},
         {"max_depth": True},
     ],
 )
@@ -113,3 +118,8 @@ def test_report_serialization_recurses_through_numpy_and_complex_values():
     assert payload["lhs_value"] == [[1.0, 0.0]]
     assert payload["rhs_value"] == {"values": [[2.0, -3.0]]}
     json.dumps(payload, allow_nan=False)
+    report = SearchReport("example", {"target": separation}, ("target",), 1.23456789, False)
+    result = report.as_dict()
+    assert result["witnesses"]["target"] == payload
+    assert result["elapsed_seconds"] == 1.234568
+    json.dumps(result, allow_nan=False)

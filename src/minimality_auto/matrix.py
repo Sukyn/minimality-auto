@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from functools import cache
 from typing import Any
 
 import numpy as np
 
-from .core import (
-    Circuit,
-    Signature,
-    ValidationError,
-    _matrix_shape_matches,
-    _natural,
-)
+from .syntax import Circuit, Signature, ValidationError, _matrix_shape_matches, _natural
 
 
 def basis_digits(index: int, wires: int, dimension: int) -> tuple[int, ...]:
@@ -41,10 +34,7 @@ def basis_permutation(
 ) -> tuple[int, ...] | None:
     """Extract an exact column-to-row permutation from a 0/1 matrix."""
 
-    try:
-        matrix = np.asarray(value)
-    except (TypeError, ValueError):
-        return None
+    matrix = np.asarray(value)
     if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or not matrix.size:
         return None
 
@@ -83,9 +73,7 @@ def basis_wire_permutation(
         if checkpoint is not None and column % 256 == 0:
             checkpoint()
         digits = basis_digits(column, len(order), wire_dimension)
-        result.append(
-            basis_index((digits[source] for source in order), wire_dimension)
-        )
+        result.append(basis_index((digits[source] for source in order), wire_dimension))
     return tuple(result)
 
 
@@ -103,7 +91,7 @@ def permutation_matrix(
 
 
 class MatrixSemantics:
-    """Evaluate circuits as complex matrices over a fixed wire dimension."""
+    """Evaluate a fixed interpretation, caching matrices across circuit sides."""
 
     def __init__(
         self,
@@ -116,52 +104,45 @@ class MatrixSemantics:
         if self.wire_dimension == 0:
             raise ValidationError("wire dimension must be positive")
         self.overrides = dict(overrides or {})
+        self._cache: dict[Circuit, Any] = {}
 
-    def evaluate(self, circuit: Circuit) -> Any:
-        matrices = self.overrides
+    def _generator_matrix(self, node: Circuit) -> np.ndarray:
+        assert node.name is not None
+        raw = self.overrides.get(node.name)
+        if raw is None:
+            raw = self.signature[node.name].matrix
+        if raw is None:
+            raise ValidationError(f"no matrix supplied for generator {node.name!r}")
+        matrix = np.asarray(raw, dtype=np.complex128)
         d = self.wire_dimension
+        if not _matrix_shape_matches(matrix.shape, d, node.inputs, node.outputs):
+            raise ValidationError(
+                f"matrix for {node.name!r} has shape {matrix.shape}, expected "
+                f"({d}^{node.outputs}, {d}^{node.inputs})"
+            )
+        return matrix
 
-        def generator_matrix(node: Circuit) -> Any:
-            assert node.name is not None
-            raw = matrices.get(node.name)
-            if raw is None:
-                raw = self.signature[node.name].matrix
-            if raw is None:
-                raise ValidationError(f"no matrix supplied for generator {node.name!r}")
-            matrix = np.asarray(raw, dtype=np.complex128)
-            if not _matrix_shape_matches(
-                matrix.shape,
-                d,
-                node.inputs,
-                node.outputs,
-            ):
-                raise ValidationError(
-                    f"matrix for {node.name!r} has shape {matrix.shape}, expected "
-                    f"({d}^{node.outputs}, {d}^{node.inputs})"
-                )
-            return matrix
-
-        @cache
-        def run(node: Circuit) -> Any:
-            if node.kind == "gen":
-                result = generator_matrix(node)
-            elif node.kind == "id":
-                result = np.eye(d**node.inputs, dtype=np.complex128)
-            elif node.kind == "perm":
-                result = permutation_matrix(node.order, d)
-            elif node.kind == "tensor":
-                result = np.ones((1, 1), dtype=np.complex128)
-                for part in node.parts:
-                    result = np.kron(result, run(part))
-            elif node.kind == "compose":
-                result = run(node.parts[0])
-                for part in node.parts[1:]:
-                    result = run(part) @ result
-            else:
-                raise AssertionError(f"unknown circuit kind {node.kind!r}")
-            return result
-
-        return run(circuit)
+    def evaluate(self, circuit: Circuit) -> np.ndarray:
+        if circuit in self._cache:
+            return self._cache[circuit]
+        if circuit.kind == "gen":
+            result = self._generator_matrix(circuit)
+        elif circuit.kind == "id":
+            result = np.eye(self.wire_dimension**circuit.inputs, dtype=np.complex128)
+        elif circuit.kind == "perm":
+            result = permutation_matrix(circuit.order, self.wire_dimension)
+        elif circuit.kind == "tensor":
+            result = np.ones((1, 1), dtype=np.complex128)
+            for part in circuit.parts:
+                result = np.kron(result, self.evaluate(part))
+        elif circuit.kind == "compose":
+            result = self.evaluate(circuit.parts[0])
+            for part in circuit.parts[1:]:
+                result = self.evaluate(part) @ result
+        else:
+            raise AssertionError(f"unknown circuit kind {circuit.kind!r}")
+        self._cache[circuit] = result
+        return result
 
 
 def evaluate_matrix(

@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import minimality_auto.context as context_module
 import minimality_auto.search as search_module
+import minimality_auto.search_types as search_types_module
+import minimality_auto.strategies as strategies_module
 from minimality_auto.core import Circuit, Theory, iter_theory_terms
 from minimality_auto.search import (
     CandidateModel,
@@ -15,6 +18,20 @@ from minimality_auto.search import (
     verify,
 )
 from minimality_auto.separators import amalgam, presence
+
+
+def test_capped_deadlines_never_extend_the_outer_budget(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(search_types_module.time, "monotonic", lambda: now[0])
+    deadline = Deadline.after(5)
+    assert deadline.remaining == 5
+    assert deadline.capped(20).expires_at == 15
+    assert deadline.capped(2).expires_at == 12
+
+    now[0] = 16
+    assert deadline.remaining == 0
+    with pytest.raises(SearchTimeout):
+        deadline.capped(1)
 
 
 def _presence_theory() -> Theory:
@@ -36,9 +53,7 @@ def _presence_theory() -> Theory:
 
 def test_presence_finds_exact_boolean_max_model():
     theory = _presence_theory()
-    report = search_theory(
-        theory, strategies=("presence",), equation_ids={"drop_a"}, timeout=2
-    )
+    report = search_theory(theory, strategies=("presence",), equation_ids={"drop_a"}, timeout=2)
     witness = report.witnesses["drop_a"]
     assert witness.strategy == "presence"
     assert witness.parameters == {"generators": ["a"]}
@@ -55,9 +70,7 @@ def test_auto_prefers_a_small_presence_witness_to_identity_substitution():
     theory = Theory.from_json(
         {
             "name": "auto_order",
-            "generators": {
-                "a": {"type": 1, "matrix": [[0, 1], [1, 0]]}
-            },
+            "generators": {"a": {"type": 1, "matrix": [[0, 1], [1, 0]]}},
             "equations": [{"id": "drop_a", "lhs": {"gen": "a"}, "rhs": {"id": 1}}],
         }
     )
@@ -97,9 +110,7 @@ def test_central_verifier_rejects_model_breaking_another_axiom():
         parameters={},
         evaluate=lambda term: term in (target.lhs, commute_lhs),
     )
-    assert (
-        verify(model, theory, target, Deadline.after(1), strategy="test") is None
-    )
+    assert verify(model, theory, target, Deadline.after(1), strategy="test") is None
 
 
 def test_arity_changing_signature_disables_the_arity_shortcut():
@@ -122,9 +133,7 @@ def test_arity_changing_signature_disables_the_arity_shortcut():
         parameters={},
         evaluate=lambda term: term.kind != "id",
     )
-    assert (
-        verify(model, theory, target, Deadline.after(1), strategy="test") is None
-    )
+    assert verify(model, theory, target, Deadline.after(1), strategy="test") is None
 
 
 def test_verifier_checks_the_deadline_after_each_model_operation():
@@ -221,9 +230,7 @@ def test_scaled_determinant_separates_three_wire_interaction():
             ],
         }
     )
-    report = search_theory(
-        theory, strategies=("determinant",), equation_ids={"I"}, timeout=2
-    )
+    report = search_theory(theory, strategies=("determinant",), equation_ids={"I"}, timeout=2)
     witness = report.witnesses["I"]
     assert witness.parameters["k"] == 2
     assert not witness.certified
@@ -271,9 +278,7 @@ def test_max_arity_includes_outputs():
             ],
         }
     )
-    report = search_theory(
-        theory, strategies=("presence",), max_arity=2, timeout=0
-    )
+    report = search_theory(theory, strategies=("presence",), max_arity=2, timeout=0)
     assert report.unresolved == ()
     assert not report.timed_out
 
@@ -318,27 +323,27 @@ def test_models_without_keys_are_not_deduplicated_by_description(monkeypatch):
 
 def test_search_context_computes_endomorphic_status_once(monkeypatch):
     calls = 0
-    original = search_module._theory_is_endomorphic
+    original = context_module._theory_is_endomorphic
 
     def counted(theory, deadline=None, analyses=None):
         nonlocal calls
         calls += 1
         return original(theory, deadline, analyses)
 
-    monkeypatch.setattr(search_module, "_theory_is_endomorphic", counted)
+    monkeypatch.setattr(context_module, "_theory_is_endomorphic", counted)
     search_theory(_presence_theory(), strategies=("presence",), timeout=2)
     assert calls == 1
 
 
 def test_search_context_analyzes_each_distinct_term_once(monkeypatch):
     calls: list[Circuit] = []
-    original = search_module.analyze_circuit
+    original = context_module.analyze_circuit
 
     def counted(term, checkpoint=None):
         calls.append(term)
         return original(term, checkpoint)
 
-    monkeypatch.setattr(search_module, "analyze_circuit", counted)
+    monkeypatch.setattr(context_module, "analyze_circuit", counted)
     theory = _presence_theory()
     report = search_theory(
         theory,
@@ -380,12 +385,8 @@ def test_exact_candidate_replaces_numerical_candidate_with_the_same_key(monkeypa
         def evaluate(term):
             return term.kind == "gen"
 
-        yield CandidateModel(
-            "numerical", {}, evaluate, key="same", certified=False
-        )
-        yield CandidateModel(
-            "exact", {}, evaluate, key="same", certified=True
-        )
+        yield CandidateModel("numerical", {}, evaluate, key="same", certified=False)
+        yield CandidateModel("exact", {}, evaluate, key="same", certified=True)
 
     monkeypatch.setattr(presence, "candidates", candidates)
     report = search_theory(
@@ -438,17 +439,14 @@ def test_search_schedule_reaches_cheap_bounds_before_expensive_strategies():
         return iter(())
 
     specs = {
-        "presence": search_module._ResolvedStrategy(
+        "presence": strategies_module._ResolvedStrategy(
             candidates,
             max_bound=6,
             eager_bound=4,
         ),
-        "amalgam": search_module._ResolvedStrategy(candidates, max_bound=1),
+        "amalgam": strategies_module._ResolvedStrategy(candidates, max_bound=1),
     }
-    schedule = [
-        (bound, name)
-        for bound, name, _spec in search_module._search_schedule(specs)
-    ]
+    schedule = [(bound, name) for bound, name, _spec in strategies_module._search_schedule(specs)]
 
     assert schedule[:5] == [(bound, "presence") for bound in range(5)]
     assert schedule.index((4, "presence")) < schedule.index((1, "amalgam"))

@@ -2,25 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
-import multiprocessing
 import sys
-import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
-from .core import PropError, Theory, load_theory
-from .search import (
-    DEFAULT_STRATEGIES,
-    DEFAULT_TIMEOUT,
-    LIMIT_SPECS,
-    STRATEGY_SPECS,
-    SearchConfigurationError,
-    SearchReport,
-    Separation,
-    search_theory,
-)
+from .parsing import load_theory
+from .runner import _timed_search
+from .search import search_theory
+from .search_types import SearchConfigurationError, Separation
+from .strategies import DEFAULT_STRATEGIES, DEFAULT_TIMEOUT, LIMIT_SPECS, STRATEGY_SPECS
+from .syntax import PropError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -74,90 +64,6 @@ def _selected_strategies(args: argparse.Namespace) -> tuple[str, ...]:
         return DEFAULT_STRATEGIES
     chosen = tuple(name for name in DEFAULT_STRATEGIES if getattr(args, name))
     return chosen or DEFAULT_STRATEGIES
-
-
-def _search_worker(sender: Any, theory: Theory, options: dict[str, Any]) -> None:
-    try:
-        report = search_theory(
-            theory,
-            **options,
-            on_witness=lambda witness: sender.send(("witness", witness)),
-        )
-        sender.send(("result", report))
-    # Forward worker exceptions so the parent can report the search failure.
-    except Exception as error:  # noqa: BLE001
-        sender.send(("error", error))
-    finally:
-        sender.close()
-
-
-def _timed_search(
-    theory: Theory,
-    options: dict[str, Any],
-    on_witness: Callable[[Separation], None] | None = None,
-) -> SearchReport:
-    """Run the CLI search in a process so its timeout can interrupt native code."""
-
-    timeout = float(options["timeout"])
-    if not math.isfinite(timeout) or timeout < 0:
-        return search_theory(theory, **options)
-    preflight_options = {**options, "timeout": 0.0}
-    preflight = search_theory(theory, **preflight_options)
-    if timeout == 0 or not preflight.timed_out:
-        if on_witness is not None:
-            for witness in preflight.witnesses.values():
-                on_witness(witness)
-        return preflight
-
-    context = multiprocessing.get_context("spawn")
-    receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(
-        target=_search_worker,
-        args=(sender, theory, options),
-        daemon=True,
-    )
-    start = time.monotonic()
-    process.start()
-    sender.close()
-    witnesses: dict[str, Separation] = {}
-    try:
-        while receiver.poll(max(0.0, timeout - (time.monotonic() - start))):
-            try:
-                event, value = receiver.recv()
-            except EOFError as exc:
-                process.join()
-                raise PropError(
-                    "search worker exited without returning a result "
-                    f"(exit code {process.exitcode})"
-                ) from exc
-            if event == "witness":
-                witnesses[value.equation] = value
-                if on_witness is not None:
-                    on_witness(value)
-                continue
-            process.join()
-            if event == "result":
-                return value
-            if event == "error":
-                raise value
-            raise PropError(f"unknown search worker event: {event!r}")
-    finally:
-        if process.is_alive():
-            process.terminate()
-        process.join()
-        receiver.close()
-
-    return SearchReport(
-        theory.name or "theory",
-        witnesses,
-        tuple(
-            equation
-            for equation in preflight.unresolved
-            if equation not in witnesses or not witnesses[equation].certified
-        ),
-        time.monotonic() - start,
-        True,
-    )
 
 
 def _print_witness(witness: Separation) -> None:

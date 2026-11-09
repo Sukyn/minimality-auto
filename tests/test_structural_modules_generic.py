@@ -33,6 +33,48 @@ def test_presence_handles_arity_changes():
     assert loop.witnesses["loop"].parameters["generators"] in (["unit"], ["counit"])
 
 
+def test_substitution_candidates_cache_sides_without_sharing_overrides(monkeypatch):
+    theory = Theory.from_json(
+        {
+            "generators": {
+                "a": {"type": 1, "matrix": [[0, 1], [1, 0]]},
+                "b": {"type": 1, "matrix": [[1, 0], [0, -1]]},
+            },
+            "equations": [
+                {
+                    "id": "target",
+                    "lhs": {"compose": [{"gen": "a"}, {"gen": "b"}]},
+                    "rhs": {"id": 1},
+                }
+            ],
+        }
+    )
+    models = list(
+        substitution.candidates(
+            theory, theory.equation("target"), bound=0, deadline=Deadline.after(2)
+        )
+    )
+    assert [model.parameters["generator"] for model in models] == ["a", "b"]
+    gate = Circuit.generator(theory.signature["a"])
+    conversions = 0
+    original = np.asarray
+
+    def counted(value, *args, **kwargs):
+        nonlocal conversions
+        conversions += 1
+        return original(value, *args, **kwargs)
+
+    monkeypatch.setattr(np, "asarray", counted)
+    first = models[0].evaluate(gate)
+    models[0].evaluate(Circuit.compose((gate, gate)))
+    assert conversions == 1
+    second = models[1].evaluate(gate)
+    assert conversions == 2
+    np.testing.assert_array_equal(first, np.eye(2))
+    np.testing.assert_array_equal(second, [[0, 1], [1, 0]])
+    assert models[0].evaluate(gate) is first
+
+
 def test_counting_disables_swap_sign_when_a_generator_changes_wire_parity():
     theory = Theory.from_json(
         {
@@ -322,7 +364,10 @@ def test_substitution_word_search_does_not_recurse_with_depth():
 
 
 def test_substitution_placements_are_lazy_in_the_ambient_wire_count():
-    assert list(substitution._placements(4, 2, Deadline.after(2))) == list(
+    small_operations = substitution._operation_alphabet(
+        2, 4, (("gen", "pair", 2, 2),), Deadline.after(2),
+    )
+    assert [tuple(op["on"]) for op, _ in small_operations if "gen" in op] == list(
         permutations(range(4), 2)
     )
     operations = list(

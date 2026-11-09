@@ -1,6 +1,7 @@
+from minimality_auto import presentation as fixed_arity
 from minimality_auto.core import Circuit, Equation, Generator, Signature, Theory
 from minimality_auto.search import Deadline
-from minimality_auto.separators import finite_model, fixed_arity
+from minimality_auto.separators import actions
 
 
 def test_presentation_compiles_shared_fixed_arity_inputs_once():
@@ -40,7 +41,7 @@ def test_presentation_compiles_shared_fixed_arity_inputs_once():
     )
 
     model = next(
-        finite_model.candidates(
+        actions.permutations(
             theory,
             theory.equation("target"),
             bound=2,

@@ -5,9 +5,10 @@ from itertools import permutations, product
 
 import pytest
 
+from minimality_auto import presentation as fixed_arity
 from minimality_auto.core import Circuit, Theory
 from minimality_auto.search import Deadline, NotApplicable, search_theory
-from minimality_auto.separators import finite_model, fixed_arity
+from minimality_auto.separators import actions
 
 
 def _compiled(term: Circuit, theory: Theory, arity: int):
@@ -59,16 +60,16 @@ def test_every_small_prop_assignment_respects_naturality_and_interchange():
     for assigned in product(values, repeat=len(variables)):
         assignment = dict(zip(variables, assigned, strict=True))
         try:
-            finite_model._validate_assignment(
+            actions._validate_assignment(
                 variables, constraints, assignment, degree
             )
         except ValueError:
             continue
         valid += 1
         for lhs, rhs in (naturality, interchange):
-            assert finite_model._evaluate(
+            assert actions._evaluate(
                 _compiled(lhs, theory, 2), assignment, degree
-            ) == finite_model._evaluate(
+            ) == actions._evaluate(
                 _compiled(rhs, theory, 2), assignment, degree
             )
     assert valid > 1
@@ -97,15 +98,15 @@ def test_scalar_centrality_holds_for_every_small_prop_assignment():
     for assigned in product(values, repeat=2):
         assignment = dict(zip(variables, assigned, strict=True))
         try:
-            finite_model._validate_assignment(
+            actions._validate_assignment(
                 variables, constraints, assignment, degree
             )
         except ValueError:
             continue
         valid += 1
-        assert finite_model._evaluate(
+        assert actions._evaluate(
             _compiled(equation.lhs, theory, 1), assignment, degree
-        ) == finite_model._evaluate(
+        ) == actions._evaluate(
             _compiled(equation.rhs, theory, 1), assignment, degree
         )
     assert valid > 1
@@ -189,16 +190,16 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
     for assigned in product(values, repeat=len(variables)):
         assignment = dict(zip(variables, assigned, strict=True))
         try:
-            finite_model._validate_assignment(
+            actions._validate_assignment(
                 variables, constraints, assignment, degree
             )
         except ValueError:
             continue
         valid += 1
         for lhs, rhs in laws:
-            assert finite_model._evaluate(
+            assert actions._evaluate(
                 _compiled(lhs, theory, 3), assignment, degree
-            ) == finite_model._evaluate(
+            ) == actions._evaluate(
                 _compiled(rhs, theory, 3), assignment, degree
             )
         # Check interchange for every ordered placement of the binary box.
@@ -212,9 +213,9 @@ def test_every_small_mixed_width_assignment_respects_prop_laws():
             unary_word = fixed_arity.place(
                 fixed_arity.generator("unary"), unary_wire, 3
             )
-            assert finite_model._evaluate(
+            assert actions._evaluate(
                 binary_word + unary_word, assignment, degree
-            ) == finite_model._evaluate(
+            ) == actions._evaluate(
                 unary_word + binary_word, assignment, degree
             )
     assert valid > 1
@@ -230,7 +231,7 @@ def test_structural_compilation_respects_composition_in_every_small_model():
     for assigned in product(values, repeat=2):
         assignment = dict(zip(variables, assigned, strict=True))
         try:
-            finite_model._validate_assignment(
+            actions._validate_assignment(
                 variables, constraints, assignment, degree
             )
         except ValueError:
@@ -241,9 +242,9 @@ def test_structural_compilation_respects_composition_in_every_small_model():
             word = fixed_arity.adjacent_word(first) + fixed_arity.adjacent_word(
                 second
             )
-            assert finite_model._evaluate(
+            assert actions._evaluate(
                 word, assignment, degree
-            ) == finite_model._evaluate(
+            ) == actions._evaluate(
                 fixed_arity.adjacent_word(composite), assignment, degree
             )
     assert valid > 1
@@ -294,7 +295,7 @@ def test_arity_changing_signature_rejects_fixed_wire_search():
 
     with pytest.raises(NotApplicable, match="endomorphic"):
         next(
-            finite_model.candidates(
+            actions.permutations(
                 theory,
                 theory.equation("turn2"),
                 bound=3,
@@ -313,7 +314,7 @@ def test_prop_helpers_reject_ill_scoped_inputs():
         (fixed_arity.generator("missing"),), ()
     )
     with pytest.raises(ValueError, match="undeclared interpretation"):
-        finite_model._validate_assignment((), (constraint,), {}, 2)
+        actions._validate_assignment((), (constraint,), {}, 2)
 
 
 def test_solver_does_not_depend_on_python_recursion_depth():
@@ -324,7 +325,7 @@ def test_solver_does_not_depend_on_python_recursion_depth():
     previous_limit = sys.getrecursionlimit()
     try:
         sys.setrecursionlimit(150)
-        solution = finite_model._find_assignment(
+        solution = actions._find_assignment(
             variables,
             (constraint,),
             2,
@@ -334,4 +335,4 @@ def test_solver_does_not_depend_on_python_recursion_depth():
         sys.setrecursionlimit(previous_limit)
 
     assert solution is not None
-    finite_model._validate_assignment(variables, (constraint,), solution, 2)
+    actions._validate_assignment(variables, (constraint,), solution, 2)

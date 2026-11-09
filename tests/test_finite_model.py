@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from minimality_auto import presentation as fixed_arity
 from minimality_auto.core import Circuit, Theory, load_theory
 from minimality_auto.search import Deadline, NotApplicable, search_theory
-from minimality_auto.separators import finite_model, fixed_arity
+from minimality_auto.separators import actions
 
 THEORY_DIR = Path(__file__).parents[1] / "theories"
 REAL_CH = THEORY_DIR / "realclifford-ch-simplified.json"
@@ -34,7 +35,7 @@ def _place(term: Circuit, selected: tuple[int, ...], total: int) -> Circuit:
 
 def _candidate(theory: Theory, target: str, degree: int):
     return next(
-        finite_model.candidates(
+        actions.permutations(
             theory,
             theory.equation(target),
             bound=degree,
@@ -47,7 +48,7 @@ def _validate_prop_assignment(arity, generators, assignment, degree):
     variables = tuple(fixed_arity.generator(name) for name, _ in generators) + tuple(
         fixed_arity.swap(index) for index in range(arity - 1)
     )
-    finite_model._validate_assignment(
+    actions._validate_assignment(
         variables,
         fixed_arity.prop_constraints(arity, generators),
         assignment,
@@ -248,7 +249,7 @@ def test_structural_permutation_compiler_uses_the_core_convention():
 
     for order in permutations(range(degree)):
         word = fixed_arity.adjacent_word(order)
-        assert finite_model._evaluate(word, assignment, degree) == _inverse(order)
+        assert actions._evaluate(word, assignment, degree) == _inverse(order)
 
 
 def test_compact_and_explicit_routing_agree_on_every_three_wire_placement():
@@ -328,7 +329,7 @@ def test_arity_changing_signatures_are_rejected():
     )
     with pytest.raises(NotApplicable, match="endomorphic signature"):
         next(
-            finite_model.candidates(
+            actions.permutations(
                 theory,
                 theory.equation("drop"),
                 bound=2,

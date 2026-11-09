@@ -11,12 +11,13 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from ..core import Circuit
+from .. import presentation as fixed_arity
+from ..algebra.finite_field import row_reduce
 from ..matrix import basis_digits, basis_permutation, basis_wire_permutation
-from ..search import CandidateModel, Deadline, NotApplicable
-from . import fixed_arity
+from ..presentation import Token, Word
+from ..search_types import CandidateModel, Deadline, NotApplicable
+from ..syntax import Circuit
 from .common import bounded_power, is_prime, require_endomorphic_theory
-from .fixed_arity import Token, Word
 
 Permutation = tuple[int, ...]
 Vector = tuple[int, ...]
@@ -29,9 +30,7 @@ MAX_SYSTEM_ENTRIES = 2_000_000
 def _matrix_permutation(matrix: Any, deadline: Deadline) -> Permutation:
     result = basis_permutation(matrix, deadline.check)
     if result is None:
-        raise NotApplicable(
-            "affine lifts need exact 0/1 basis-permutation matrices"
-        )
+        raise NotApplicable("affine lifts need exact 0/1 basis-permutation matrices")
     return result
 
 
@@ -116,39 +115,7 @@ def _separating_vector(
 ) -> Vector | None:
     """Find a vector in the source kernel with a nonzero target-row product."""
 
-    rows = [list(row) for row in source if any(row)]
-    pivots: list[int] = []
-    pivot_row = 0
-    for column in range(columns):
-        if column % 16 == 0:
-            deadline.check()
-        found = next(
-            (
-                row
-                for row in range(pivot_row, len(rows))
-                if rows[row][column] % prime
-            ),
-            None,
-        )
-        if found is None:
-            continue
-        rows[pivot_row], rows[found] = rows[found], rows[pivot_row]
-        scale = pow(rows[pivot_row][column] % prime, -1, prime)
-        rows[pivot_row] = [(entry * scale) % prime for entry in rows[pivot_row]]
-        for row, values in enumerate(rows):
-            if row == pivot_row:
-                continue
-            scale = values[column] % prime
-            if scale:
-                rows[row] = [
-                    (entry - scale * pivot) % prime
-                    for entry, pivot in zip(values, rows[pivot_row], strict=True)
-                ]
-        pivots.append(column)
-        pivot_row += 1
-        if pivot_row == len(rows):
-            break
-
+    rows, pivots = row_reduce(source, columns, prime, deadline)
     pivot_set = frozenset(pivots)
     for free in range(columns):
         if free % 16 == 0:
@@ -185,10 +152,7 @@ def _evaluate_word(
         for source, target in enumerate(action):
             moved[target] = translation[source]
         own = translations[token]
-        translation = [
-            (value + added) % prime
-            for value, added in zip(moved, own, strict=True)
-        ]
+        translation = [(value + added) % prime for value, added in zip(moved, own, strict=True)]
         base = tuple(action[value] for value in base)
     return base, tuple(translation)
 
@@ -220,9 +184,7 @@ def candidates(
         max_affine_lift_dimension,
     )
     if arity > max_affine_lift_dimension or dimension is None:
-        raise NotApplicable(
-            f"affine-lift dimension exceeds {max_affine_lift_dimension}"
-        )
+        raise NotApplicable(f"affine-lift dimension exceeds {max_affine_lift_dimension}")
     presentation = fixed_arity.compile_presentation(
         theory,
         target,
@@ -238,8 +200,7 @@ def candidates(
     columns = len(variables) * dimension
     if (
         columns > max_affine_lift_dimension**2
-        or len(presentation.required_constraints) * dimension * columns
-        > MAX_SYSTEM_ENTRIES
+        or len(presentation.required_constraints) * dimension * columns > MAX_SYSTEM_ENTRIES
     ):
         raise NotApplicable("affine-lift linear system exceeds its safe dense bound")
     offsets = {token: index * dimension for index, token in enumerate(variables)}
@@ -284,8 +245,7 @@ def candidates(
             return
 
     translations = {
-        token: witness[offsets[token] : offsets[token] + dimension]
-        for token in variables
+        token: witness[offsets[token] : offsets[token] + dimension] for token in variables
     }
     cache.clear()
     equations.clear()
@@ -310,17 +270,7 @@ def candidates(
     }
 
     def evaluate(term: Circuit) -> tuple[Permutation, Vector]:
-        if term.inputs != term.outputs or term.inputs > presentation.arity:
-            raise NotApplicable(
-                "affine lift supports endomorphisms through arity "
-                f"{presentation.arity}"
-            )
-        word = fixed_arity.compile_word(
-            term,
-            presentation.signature,
-            presentation.arity,
-            deadline=deadline,
-        )
+        word = presentation.compile(term, deadline)
         return _evaluate_word(word, bases, translations, bound, deadline)
 
     def render_entry(entry: list[Any]) -> str:

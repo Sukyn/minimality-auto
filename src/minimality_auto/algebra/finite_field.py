@@ -10,9 +10,9 @@ from fractions import Fraction
 from functools import cache
 from typing import Any
 
+from .. import presentation as fixed_arity
 from ..matrix import basis_wire_permutation
-from ..search import Deadline, NotApplicable
-from . import fixed_arity
+from ..search_types import Deadline, NotApplicable
 
 Mat = tuple[int, ...]
 ENTRY_TOLERANCE = 1e-10
@@ -24,11 +24,7 @@ class Reject(RuntimeError):
 
 @cache
 def identity(size: int) -> Mat:
-    return tuple(
-        1 if row == column else 0
-        for row in range(size)
-        for column in range(size)
-    )
+    return tuple(1 if row == column else 0 for row in range(size) for column in range(size))
 
 
 def multiply(left: Mat, right: Mat, size: int, prime: int) -> Mat:
@@ -39,42 +35,56 @@ def multiply(left: Mat, right: Mat, size: int, prime: int) -> Mat:
             if value:
                 for column in range(size):
                     index = row * size + column
-                    result[index] = (
-                        result[index] + value * right[middle * size + column]
-                    ) % prime
+                    result[index] = (result[index] + value * right[middle * size + column]) % prime
     return tuple(result)
+
+
+def row_reduce(
+    source: Sequence[Sequence[int]],
+    columns: int,
+    prime: int,
+    deadline: Deadline | None = None,
+) -> tuple[list[list[int]], tuple[int, ...]]:
+    """Reduce coefficient columns, carrying any augmented columns along."""
+    rows = [list(row) for row in source if any(row)]
+    pivots: list[int] = []
+    for column in range(columns):
+        if deadline is not None and column % 16 == 0:
+            deadline.check()
+        pivot_row = len(pivots)
+        pivot = next(
+            (row for row in range(pivot_row, len(rows)) if rows[row][column] % prime),
+            None,
+        )
+        if pivot is None:
+            continue
+        rows[pivot_row], rows[pivot] = rows[pivot], rows[pivot_row]
+        scale = pow(rows[pivot_row][column] % prime, -1, prime)
+        rows[pivot_row] = [(entry * scale) % prime for entry in rows[pivot_row]]
+        for row, values in enumerate(rows):
+            if row == pivot_row:
+                continue
+            scale = values[column] % prime
+            if scale:
+                rows[row] = [
+                    (entry - scale * pivot_entry) % prime
+                    for entry, pivot_entry in zip(values, rows[pivot_row], strict=True)
+                ]
+        pivots.append(column)
+        if len(pivots) == len(rows):
+            break
+    return rows, tuple(pivots)
 
 
 def inverse(value: Mat, size: int, prime: int) -> Mat:
     unit = identity(size)
-    rows = [
-        [
-            *value[row * size : (row + 1) * size],
-            *unit[row * size : (row + 1) * size],
-        ]
+    augmented = [
+        [*value[row * size : (row + 1) * size], *unit[row * size : (row + 1) * size]]
         for row in range(size)
     ]
-    for column in range(size):
-        pivot = next(
-            (row for row in range(column, size) if rows[row][column] % prime),
-            None,
-        )
-        if pivot is None:
-            raise Reject("singular finite-field matrix")
-        rows[column], rows[pivot] = rows[pivot], rows[column]
-        scale = pow(rows[column][column] % prime, -1, prime)
-        rows[column] = [(entry * scale) % prime for entry in rows[column]]
-        for row in range(size):
-            if row == column:
-                continue
-            scale = rows[row][column] % prime
-            if scale:
-                rows[row] = [
-                    (entry - scale * pivot_entry) % prime
-                    for entry, pivot_entry in zip(
-                        rows[row], rows[column], strict=True
-                    )
-                ]
+    rows, pivots = row_reduce(augmented, size, prime)
+    if len(pivots) != size:
+        raise Reject("singular finite-field matrix")
     return tuple(entry for row in rows for entry in row[size:])
 
 
@@ -106,11 +116,7 @@ def permutation_matrix(order: tuple[int, ...], wire_dimension: int) -> Mat:
     return tuple(result)
 
 
-@dataclass(frozen=True)
-class _Scalar:
-    kind: str
-    first: int
-    second: int
+_Scalar = Fraction | tuple[int, int]  # Rational value or (variable index, sign).
 
 
 @dataclass(frozen=True)
@@ -136,17 +142,18 @@ def templates(
             real = float(value.real)
             rational = Fraction(real).limit_denominator(64)
             if abs(real - float(rational)) <= ENTRY_TOLERANCE:
-                return _Scalar("rational", rational.numerator, rational.denominator)
+                return rational
 
         # Treat non-rational entries as free F_p scalars, sharing a variable
         # for values equal up to sign. Check each candidate by exact F_p arithmetic.
-        sign = -1 if (
-            value.real < -ENTRY_TOLERANCE
-            or (
-                abs(value.real) <= ENTRY_TOLERANCE
-                and value.imag < -ENTRY_TOLERANCE
+        sign = (
+            -1
+            if (
+                value.real < -ENTRY_TOLERANCE
+                or (abs(value.real) <= ENTRY_TOLERANCE and value.imag < -ENTRY_TOLERANCE)
             )
-        ) else 1
+            else 1
+        )
         representative = complex(sign * value)
         index = next(
             (
@@ -159,7 +166,7 @@ def templates(
         if index is None:
             variables.append(representative)
             index = len(variables) - 1
-        return _Scalar("variable", index, sign)
+        return index, sign
 
     matrices: dict[str, tuple[_Scalar, ...]] = {}
     sizes: dict[str, int] = {}
@@ -172,24 +179,10 @@ def templates(
         if name not in active or generator is None or generator.matrix is None:
             raw = identity(size)
         else:
-            try:
-                if len(generator.matrix) != size or any(
-                    len(row) != size for row in generator.matrix
-                ):
-                    raise NotApplicable(
-                        f"matrix template for {name!r} has the wrong shape"
-                    )
-                raw = tuple(entry for row in generator.matrix for entry in row)
-            except (TypeError, ValueError, OverflowError) as error:
-                raise NotApplicable(
-                    f"matrix template for {name!r} has invalid rows"
-                ) from error
-        try:
-            matrices[name] = tuple(scalar(complex(entry)) for entry in raw)
-        except (TypeError, ValueError, OverflowError) as error:
-            raise NotApplicable(
-                f"matrix template for {name!r} has invalid entries"
-            ) from error
+            if len(generator.matrix) != size or any(len(row) != size for row in generator.matrix):
+                raise NotApplicable(f"matrix template for {name!r} has the wrong shape")
+            raw = tuple(entry for row in generator.matrix for entry in row)
+        matrices[name] = tuple(scalar(complex(entry)) for entry in raw)
         sizes[name] = size
     if len(variables) > max_variables:
         raise NotApplicable(
@@ -212,12 +205,13 @@ def instantiate(
     for name, width in signature.items():
         entries: list[int] = []
         for scalar in source.matrices[name]:
-            if scalar.kind == "rational":
-                if scalar.second % prime == 0:
+            if isinstance(scalar, Fraction):
+                if scalar.denominator % prime == 0:
                     raise Reject("a template denominator vanishes")
-                value = scalar.first * pow(scalar.second, -1, prime)
+                value = scalar.numerator * pow(scalar.denominator, -1, prime)
             else:
-                value = scalar.second * assignment[scalar.first]
+                index, sign = scalar
+                value = sign * assignment[index]
             entries.append(value % prime)
         matrix = tuple(entries)
         native[name] = matrix
@@ -287,9 +281,7 @@ class MatrixGroup:
     def multiply(self, left: int, right: int) -> int:
         key = left, right
         if key not in self._products:
-            matrix = multiply(
-                self.elements[right], self.elements[left], self.size, self.prime
-            )
+            matrix = multiply(self.elements[right], self.elements[left], self.size, self.prime)
             self._products[key] = self.element(matrix)
         return self._products[key]
 

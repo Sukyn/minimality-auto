@@ -1,0 +1,8 @@
+{
+  "name": "A retraction need not be an isomorphism",
+  "generators": {"state": [0, 1], "effect": [1, 0]},
+  "equations": [
+    {"id": "retraction", "lhs": {"compose": [{"gen": "state"}, {"gen": "effect"}]}, "rhs": {"id": 0}},
+    {"id": "target", "lhs": {"compose": [{"gen": "effect"}, {"gen": "state"}]}, "rhs": {"id": 1}}
+  ]
+}

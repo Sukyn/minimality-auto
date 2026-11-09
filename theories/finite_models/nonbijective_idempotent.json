@@ -1,0 +1,8 @@
+{
+  "name": "An idempotent transformation need not be the identity",
+  "generators": {"e": 1},
+  "equations": [
+    {"id": "idempotent", "lhs": {"gen": "e", "repeat": 2}, "rhs": {"gen": "e"}},
+    {"id": "target", "lhs": {"gen": "e"}, "rhs": {"id": 1}}
+  ]
+}

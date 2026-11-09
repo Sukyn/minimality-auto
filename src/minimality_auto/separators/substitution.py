@@ -7,12 +7,9 @@ from typing import Any
 
 import numpy as np
 
-from ..core import (
-    Circuit,
-    _wire_size_matches,
-)
-from ..matrix import evaluate_matrix
-from ..search import CandidateModel, Deadline, NotApplicable
+from ..matrix import MatrixSemantics, evaluate_matrix
+from ..search_types import CandidateModel, Deadline, NotApplicable
+from ..syntax import Circuit, _matrix_shape_matches
 from .common import (
     bounded_power,
     circuit_analysis,
@@ -37,18 +34,6 @@ def _fingerprint(matrix: np.ndarray) -> bytes:
     return rounded.tobytes()
 
 
-def _placements(
-    wires: int,
-    width: int,
-    deadline: Deadline,
-) -> Iterator[tuple[int, ...]]:
-    if width < 0 or width > wires:
-        return
-    for placement in permutations(range(wires), width):
-        deadline.check()
-        yield placement
-
-
 def _operation_alphabet(
     wire_dimension: int,
     wires: int,
@@ -57,16 +42,17 @@ def _operation_alphabet(
 ) -> Iterator[tuple[dict[str, Any], int]]:
     for kind, name, source, target in operations:
         deadline.check()
-        if source > wires:
+        if not 0 <= source <= wires:
             continue
-        for placement in _placements(wires, source, deadline):
+        placements = (
+            (tuple(range(source)),) if wire_dimension == 1 else permutations(range(wires), source)
+        )
+        for placement in placements:
             deadline.check()
             yield (
                 {kind: name, "on": list(placement)},
                 wires - source + target,
             )
-            if wire_dimension == 1:
-                break
     if wire_dimension > 1 and wires >= 2:
         for left in range(wires):
             for right in range(left + 1, wires):
@@ -81,8 +67,6 @@ def _matrix_budget_allows(
     wires: int,
     max_matrix_entries: int,
 ) -> bool:
-    if max_matrix_entries < 1:
-        return False
     return bounded_power(wire_dimension, 2 * wires, max_matrix_entries) is not None
 
 
@@ -124,9 +108,7 @@ def _replacement_terms(
             if stack:
                 word.pop()
             continue
-        if not _matrix_budget_allows(
-            wire_dimension, next_wires, max_matrix_entries
-        ):
+        if not _matrix_budget_allows(wire_dimension, next_wires, max_matrix_entries):
             continue
         word.append(operation)
         if remaining > 1:
@@ -176,9 +158,7 @@ def candidates(
     depth = bound
     if depth < 0 or depth > max_depth:
         return
-    wire_dimension = int(theory.wire_dimension)
-    if wire_dimension < 1:
-        raise NotApplicable("wire dimension must be positive")
+    wire_dimension = theory.wire_dimension
     checked = [*retained_equations(theory, target, context), target]
     generators = sorted(theory.signature.values(), key=lambda item: item.name)
     if not generators:
@@ -187,19 +167,13 @@ def candidates(
     usable: set[str] = set()
     for generator in generators:
         deadline.check()
-        raw = getattr(generator, "matrix", None)
+        raw = generator.matrix
         if raw is None:
             continue
         source, target_arity = generator.type
-        try:
-            matrix = np.asarray(raw, dtype=complex)
-        except (TypeError, ValueError):
-            continue
-        if (
-            matrix.ndim == 2
-            and _wire_size_matches(matrix.shape[0], wire_dimension, target_arity)
-            and _wire_size_matches(matrix.shape[1], wire_dimension, source)
-            and np.all(np.isfinite(matrix))
+        matrix = np.asarray(raw, dtype=complex)
+        if _matrix_shape_matches(matrix.shape, wire_dimension, source, target_arity) and np.all(
+            np.isfinite(matrix)
         ):
             usable.add(generator.name)
     usable_generators = frozenset(usable)
@@ -212,13 +186,12 @@ def candidates(
     for name, body in sorted(theory.macros.items()):
         deadline.check()
         analysis = circuit_analysis(body, context)
-        if (
-            {name for name, _ in analysis.occurrences} <= usable_generators
-            and _matrix_budget_allows(
-                wire_dimension,
-                analysis.maximum_wires,
-                max_substitution_matrix_entries,
-            )
+        if {
+            name for name, _ in analysis.occurrences
+        } <= usable_generators and _matrix_budget_allows(
+            wire_dimension,
+            analysis.maximum_wires,
+            max_substitution_matrix_entries,
         ):
             operations.append(("macro", name, *body.type))
     operation_records = tuple(operations)
@@ -265,49 +238,39 @@ def candidates(
             max_substitution_matrix_entries,
         ):
             deadline.check()
-            try:
-                replacement_matrix = evaluate_matrix(
-                    replacement,
-                    theory.signature,
-                    wire_dimension,
-                )
-            except (TypeError, ValueError, OverflowError):
-                continue
+            replacement_matrix = evaluate_matrix(
+                replacement,
+                theory.signature,
+                wire_dimension,
+            )
             replacement_matrix = np.asarray(replacement_matrix, dtype=complex)
-            expected = (wire_dimension**target_arity, wire_dimension**source)
-            if replacement_matrix.shape != expected or not np.all(
-                np.isfinite(replacement_matrix)
-            ):
+            if not _matrix_shape_matches(
+                replacement_matrix.shape,
+                wire_dimension,
+                source,
+                target_arity,
+            ) or not np.all(np.isfinite(replacement_matrix)):
                 continue
             fingerprint = _fingerprint(replacement_matrix)
             if fingerprint in seen_matrices:
                 continue
             seen_matrices.add(fingerprint)
-            override = {generator.name: replacement_matrix}
-
-            def evaluate(term: Any, override: dict[str, np.ndarray] = override) -> np.ndarray:
-                return evaluate_matrix(
-                    term,
-                    theory.signature,
-                    wire_dimension,
-                    overrides=override,
-                )
+            semantics = MatrixSemantics(
+                theory.signature,
+                wire_dimension,
+                overrides={generator.name: replacement_matrix},
+            )
 
             yield CandidateModel(
-                description=(
-                    f"numerical projective substitution "
-                    f"{generator.name} := {label}"
-                ),
+                description=(f"numerical projective substitution {generator.name} := {label}"),
                 parameters={
                     "generator": generator.name,
                     "replacement": label,
                     "depth": depth,
                     "matrix_tolerance": PROJECTIVE_TOLERANCE,
                 },
-                evaluate=evaluate,
-                equal=lambda left, right: projectively_equal(
-                    left, right, PROJECTIVE_TOLERANCE
-                ),
+                evaluate=semantics.evaluate,
+                equal=lambda left, right: projectively_equal(left, right, PROJECTIVE_TOLERANCE),
                 key=(generator.name, fingerprint),
                 certified=False,
             )

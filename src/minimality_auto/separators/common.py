@@ -6,16 +6,16 @@ from typing import Any
 
 import numpy as np
 
-from ..core import (
-    Circuit,
+from ..analysis import (
     CircuitAnalysis,
     analyze_circuit,
-    contains_arity_change,
     iter_circuit_nodes,
     iter_theory_terms,
 )
+from ..context import _theory_is_endomorphic, retained_equations
 from ..matrix import evaluate_matrix
-from ..search import Deadline, NotApplicable, relevant_equations
+from ..search_types import Deadline, NotApplicable
+from ..syntax import Circuit, ValidationError
 
 
 def bounded_power(base: int, exponent: int, limit: int) -> int | None:
@@ -42,27 +42,13 @@ def is_prime(value: int, deadline: Deadline | None = None) -> bool:
     return True
 
 
-def retained_equations(
-    theory: Any,
-    target: Any,
-    context: Any = None,
-) -> tuple[Any, ...]:
-    if context is not None:
-        return context.for_target(target).equations
-    return tuple(relevant_equations(theory, target))
-
-
 def circuit_analysis(term: Circuit, context: Any = None) -> CircuitAnalysis:
     return context.analysis_for(term) if context is not None else analyze_circuit(term)
 
 
-def active_primitive_names(
-    terms: Iterable[Circuit], context: Any = None
-) -> frozenset[str]:
+def active_primitive_names(terms: Iterable[Circuit], context: Any = None) -> frozenset[str]:
     return frozenset(
-        name
-        for term in terms
-        for name, _ in circuit_analysis(term, context).occurrences
+        name for term in terms for name, _ in circuit_analysis(term, context).occurrences
     )
 
 
@@ -92,11 +78,7 @@ def projectively_equal(
 
     left = np.asarray(left, dtype=complex)
     right = np.asarray(right, dtype=complex)
-    if (
-        left.shape != right.shape
-        or not np.all(np.isfinite(left))
-        or not np.all(np.isfinite(right))
-    ):
+    if left.shape != right.shape or not np.all(np.isfinite(left)) or not np.all(np.isfinite(right)):
         return False
     if not left.size:
         return True
@@ -129,8 +111,8 @@ def numerical_matrix(theory: Any, term: Any, purpose: str) -> np.ndarray:
             ),
             dtype=np.complex128,
         )
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise NotApplicable(f"{purpose} needs valid matrices") from exc
+    except ValidationError as exc:
+        raise NotApplicable(f"{purpose} needs supplied matrices") from exc
     if not np.all(np.isfinite(value)):
         raise NotApplicable(f"{purpose} needs finite matrix entries")
     return value
@@ -150,8 +132,7 @@ def wire_parity_is_preserved(theory: Any, *extra_terms: Circuit) -> bool:
         )
 
     if any(
-        generator.inputs % 2 != generator.outputs % 2
-        for generator in theory.signature.values()
+        generator.inputs % 2 != generator.outputs % 2 for generator in theory.signature.values()
     ):
         return False
     return all(preserves(term) for term in iter_theory_terms(theory, *extra_terms))
@@ -164,24 +145,10 @@ def require_endomorphic_theory(
 ) -> None:
     """Require equal input and output arities in all generators and terms."""
 
-    if context is not None:
-        deadline.check()
-        if not context.endomorphic:
-            raise NotApplicable(
-                "fixed-arity PROP search requires an endomorphic theory"
-            )
-        return
-
-    for generator in theory.signature.values():
-        deadline.check()
-        if generator.inputs != generator.outputs:
-            raise NotApplicable(
-                "fixed-arity PROP search requires an endomorphic signature"
-            )
-
-    for term in iter_theory_terms(theory):
-        if contains_arity_change(term, deadline.check):
-            raise NotApplicable(
-                "fixed-arity PROP search requires endomorphic "
-                "signature terms and macros"
-            )
+    deadline.check()
+    endomorphic = (
+        context.endomorphic if context is not None else _theory_is_endomorphic(theory, deadline)
+    )
+    if not endomorphic:
+        scope = "theory" if context is not None else "signature terms and macros"
+        raise NotApplicable(f"fixed-arity PROP search requires an endomorphic {scope}")

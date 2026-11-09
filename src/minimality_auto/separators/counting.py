@@ -1,11 +1,18 @@
+"""Modular invariants of primitive counts and wire-permutation signs."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
-from itertools import product
 from typing import Any
 
-from ..search import CandidateModel, Deadline
-from .common import circuit_analysis, primitive_names, wire_parity_is_preserved
+from ..algebra.abelian import separating_weights
+from ..search_types import CandidateModel, Deadline
+from .common import (
+    circuit_analysis,
+    primitive_names,
+    retained_equations,
+    wire_parity_is_preserved,
+)
 
 
 def candidates(
@@ -17,41 +24,45 @@ def candidates(
     max_modulus: int = 8,
     context: Any = None,
 ) -> Iterator[CandidateModel]:
-    """Additive ``Z/m`` PROP models, optionally using the swap sign."""
+    """Solve for an additive ``Z/m`` PROP separator, optionally using the swap sign."""
     modulus = bound
     if modulus < 2 or modulus > max_modulus:
         return
     names = primitive_names(theory, target, deadline, context)
-    nonzero_swap_is_sound = modulus % 2 == 0 and wire_parity_is_preserved(
-        theory, target.lhs, target.rhs
-    )
-    swap_values = (0, modulus // 2) if nonzero_swap_is_sound else (0,)
+    use_swap = modulus % 2 == 0 and wire_parity_is_preserved(theory, target.lhs, target.rhs)
 
-    for values in product(range(modulus), repeat=len(names)):
+    def counts(term: Any) -> tuple[int, ...]:
         deadline.check()
-        weights = dict(zip(names, values, strict=True))
-        for swap in swap_values:
-            if not any(values) and swap == 0:
-                continue
+        analysis = circuit_analysis(term, context)
+        occurrences = dict(analysis.occurrences)
+        row = tuple(occurrences.get(name, 0) for name in names)
+        return row + (analysis.permutation_parity,) if use_swap else row
 
-            def evaluate(
-                term: Any,
-                weights: dict[str, int] = weights,
-                swap: int = swap,
-                modulus: int = modulus,
-            ) -> int:
-                analysis = circuit_analysis(term, context)
-                counts = analysis.occurrence_counter()
-                total = sum(counts[name] * value for name, value in weights.items())
-                total += analysis.permutation_parity * swap
-                return total % modulus
+    def difference(equation: Any) -> tuple[int, ...]:
+        return tuple(a - b for a, b in zip(counts(equation.lhs), counts(equation.rhs), strict=True))
 
-            nonzero = {name: value for name, value in weights.items() if value}
-            description = f"count mod {modulus}: {nonzero or '{}'}"
-            if swap:
-                description += f", swap={swap}"
-            yield CandidateModel(
-                description=description,
-                parameters={"modulus": modulus, "weights": nonzero, "swap": swap},
-                evaluate=evaluate,
-            )
+    rows = [difference(eq) for eq in retained_equations(theory, target, context)]
+    if use_swap:
+        rows.append((0,) * len(names) + (2,))  # Symmetry is an involution: 2 * swap = 0.
+    values = separating_weights(rows, difference(target), modulus, deadline)
+    if values is None:
+        return
+
+    def evaluate(term: Any) -> int:
+        return (
+            sum(count * weight for count, weight in zip(counts(term), values, strict=True))
+            % modulus
+        )
+
+    weights = {
+        name: value for name, value in zip(names, values[: len(names)], strict=True) if value
+    }
+    swap = values[-1] if use_swap else 0
+    description = f"count mod {modulus}: {weights}"
+    if swap:
+        description += f", swap={swap}"
+    yield CandidateModel(
+        description=description,
+        parameters={"modulus": modulus, "weights": weights, "swap": swap},
+        evaluate=evaluate,
+    )

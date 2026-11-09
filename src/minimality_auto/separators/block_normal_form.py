@@ -18,18 +18,15 @@ from __future__ import annotations
 import heapq
 from collections.abc import Iterator
 from dataclasses import dataclass
-from itertools import count
+from itertools import count, groupby
+from operator import attrgetter
 from typing import Any
 
 import numpy as np
 
-from ..core import Circuit
 from ..matrix import basis_digits, basis_index, basis_permutation, permutation_matrix
-from ..search import (
-    Deadline,
-    DirectEvidence,
-    NotApplicable,
-)
+from ..search_types import Deadline, DirectEvidence, NotApplicable
+from ..syntax import Circuit
 from .common import (
     active_primitive_names,
     numerical_matrix,
@@ -127,8 +124,7 @@ def _active_generator_matrices(
             or generator.matrix is None
         ):
             raise NotApplicable(
-                "active primitives must be matrix-defined 0-, 1-, or 2-wire "
-                "endomorphisms"
+                "active primitives must be matrix-defined 0-, 1-, or 2-wire endomorphisms"
             )
         value = np.asarray(generator.matrix, dtype=np.complex128)
         size = dimension**generator.inputs
@@ -222,13 +218,9 @@ def _routing_paths(
     best: dict[State, int] = {start: 0}
     paths: dict[State, set[tuple[_Step, ...]]] = {start: {()}}
     serial = count()
-    queue: list[tuple[int, int, State, tuple[_Step, ...]]] = [
-        (0, next(serial), start, ())
-    ]
+    queue: list[tuple[int, int, State, tuple[_Step, ...]]] = [(0, next(serial), start, ())]
 
-    def push(
-        state: State, blocks: int, path: tuple[_Step, ...]
-    ) -> None:
+    def push(state: State, blocks: int, path: tuple[_Step, ...]) -> None:
         previous = best.get(state)
         if previous is None or blocks < previous:
             best[state] = blocks
@@ -252,11 +244,7 @@ def _routing_paths(
         index, layout, last_pair = state
 
         for pair in (0, 1):
-            if (
-                path
-                and path[-1].name is None
-                and path[-1].pair == pair
-            ):
+            if path and path[-1].name is None and path[-1].pair == pair:
                 continue  # Delete the structural relation SWAP ; SWAP = id.
             changed = list(layout)
             changed[pair], changed[pair + 1] = (
@@ -323,17 +311,11 @@ def _path_summary(
     the maximal-block form.
     """
 
-    groups: list[list[_Step]] = []
-    for step in path:
-        if not groups or groups[-1][0].pair != step.pair:
-            groups.append([])
-        groups[-1].append(step)
+    groups = [list(steps) for _, steps in groupby(path, key=attrgetter("pair"))]
 
     blocks: list[dict[str, Any]] = []
     if groups and groups[0][0].pair == 0:
-        blocks.append(
-            {"support": "12", "kind": "routing_identity", "factors": []}
-        )
+        blocks.append({"support": "12", "kind": "routing_identity", "factors": []})
     for group in groups:
         gates = [step for step in group if step.name is not None]
         if len(gates) > 1:
@@ -364,16 +346,11 @@ def _path_summary(
             }
         )
     if groups and groups[-1][0].pair == 0:
-        blocks.append(
-            {"support": "12", "kind": "routing_identity", "factors": []}
-        )
+        blocks.append({"support": "12", "kind": "routing_identity", "factors": []})
 
     allowed_routing = {0, len(blocks) - 2, len(blocks) - 1}
     for index, block in enumerate(blocks):
-        if (
-            block["kind"] == "routing_swap"
-            and index not in allowed_routing
-        ):
+        if block["kind"] == "routing_swap" and index not in allowed_routing:
             return None, False
     return (
         {
@@ -405,10 +382,7 @@ def _normal_form(
         summaries.append(summary)
     if not summaries:
         return None
-    signatures = {
-        (summary["block_count"], tuple(summary["signature"]))
-        for summary in summaries
-    }
+    signatures = {(summary["block_count"], tuple(summary["signature"])) for summary in summaries}
     if len(signatures) != 1:
         return None
     return min(summaries, key=repr)
@@ -426,10 +400,7 @@ def _rank_status(
     pivot_value = realigned[pivot]
     if not np.isfinite(pivot_value) or pivot_value == 0:
         raise NotApplicable("could not test the operator-Schmidt rank")
-    minors = (
-        pivot_value * realigned
-        - np.outer(realigned[:, pivot[1]], realigned[pivot[0], :])
-    )
+    minors = pivot_value * realigned - np.outer(realigned[:, pivot[1]], realigned[pivot[0], :])
     witness_index = np.unravel_index(int(np.argmax(np.abs(minors))), minors.shape)
     witness_value = complex(minors[witness_index])
     if exact:
@@ -459,9 +430,7 @@ def _rank_status(
 def _block_kind(
     matrix: np.ndarray, dimension: int, *, exact: bool = False
 ) -> tuple[str, dict[str, Any]]:
-    local, local_minor, local_witness = _rank_status(
-        matrix, dimension, exact=exact
-    )
+    local, local_minor, local_witness = _rank_status(matrix, dimension, exact=exact)
     swapped, swapped_minor, swapped_witness = _rank_status(
         matrix @ permutation_matrix((1, 0), dimension),
         dimension,
@@ -513,16 +482,12 @@ def candidates(
         target.rhs,
         *(side for equation in retained for side in (equation.lhs, equation.rhs)),
     )
-    matrices, permutations = _active_generator_matrices(
-        theory, terms, deadline, context
-    )
+    matrices, permutations = _active_generator_matrices(theory, terms, deadline, context)
     exact = permutations is not None
     limit = max_block_exact_states if exact else max_block_matrix_dimension
     if state_count > limit:
         representation = "basis-state" if exact else "matrix-dimension"
-        raise NotApplicable(
-            f"ambient {representation} bound exceeds {limit}"
-        )
+        raise NotApplicable(f"ambient {representation} bound exceeds {limit}")
 
     left_trace = _logical_trace(target.lhs)
     right_trace = _logical_trace(target.rhs)
@@ -540,9 +505,7 @@ def candidates(
             assert permutations is not None
             sound = _exact_term_permutation(
                 theory, equation.lhs, permutations, deadline
-            ) == _exact_term_permutation(
-                theory, equation.rhs, permutations, deadline
-            )
+            ) == _exact_term_permutation(theory, equation.rhs, permutations, deadline)
         else:
             sound = projectively_equal(
                 _matrix(theory, equation.lhs),
@@ -550,10 +513,7 @@ def candidates(
                 UNITARY_TOLERANCE,
             )
         if not sound:
-            raise NotApplicable(
-                f"equation {equation.id!r} is not matrix-sound "
-                "up to global phase"
-            )
+            raise NotApplicable(f"equation {equation.id!r} is not matrix-sound up to global phase")
 
     entangling = set(certificates)
     left = _normal_form(left_trace, entangling, deadline)
@@ -566,29 +526,17 @@ def candidates(
         return
 
     if left["block_count"] == right["block_count"]:
-        difference = (
-            f"{left['block_count']} blocks with different boundary types"
-        )
+        difference = f"{left['block_count']} blocks with different boundary types"
     else:
-        difference = (
-            f"{left['block_count']} versus {right['block_count']} blocks"
-        )
+        difference = f"{left['block_count']} versus {right['block_count']} blocks"
     parameters = {
         "wire_dimension": dimension,
         "retained_arity_bound": 2,
         "normal_form": "alternating adjacent blocks with lower-pair padding",
-        "local_equivalence": (
-            "discard scalar phases and absorb one-wire unitaries"
-        ),
-        "primitive_test": (
-            "Brylinski local-or-local-after-SWAP operator-Schmidt test"
-        ),
+        "local_equivalence": ("discard scalar phases and absorb one-wire unitaries"),
+        "primitive_test": ("Brylinski local-or-local-after-SWAP operator-Schmidt test"),
         "generator_rank_certificates": certificates,
-        "arithmetic": (
-            "exact 0/1 basis permutations"
-            if exact
-            else "floating-point matrices"
-        ),
+        "arithmetic": ("exact 0/1 basis permutations" if exact else "floating-point matrices"),
     }
     if not exact:
         parameters.update(

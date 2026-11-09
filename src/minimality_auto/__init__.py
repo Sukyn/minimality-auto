@@ -1,6 +1,7 @@
 """Independence searches for PROP presentations."""
 
-from .core import PropError, Theory, ValidationError, load_theory
+from .parsing import load_theory
+from .syntax import PropError, Theory, ValidationError
 
 __all__ = [
     "PropError",

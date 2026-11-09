@@ -1,0 +1,10 @@
+{
+  "name": "A scalar nilpotent over dual numbers",
+  "generators": {"e": 0, "zero": 0},
+  "equations": [
+    {"id": "idempotent_zero", "lhs": {"gen": "zero", "repeat": 2}, "rhs": {"gen": "zero"}},
+    {"id": "absorbing", "lhs": {"compose": [{"gen": "zero"}, {"gen": "e"}]}, "rhs": {"gen": "zero"}},
+    {"id": "nilpotent", "lhs": {"gen": "e", "repeat": 2}, "rhs": {"gen": "zero"}},
+    {"id": "target", "lhs": {"gen": "e"}, "rhs": {"gen": "zero"}}
+  ]
+}

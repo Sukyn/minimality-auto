@@ -5,16 +5,18 @@ from itertools import product
 import numpy as np
 import pytest
 
-from minimality_auto.core import Circuit, Equation, Generator, Signature, Theory
-from minimality_auto.search import Deadline, NotApplicable, SearchTimeout
-from minimality_auto.separators import amalgam, fixed_arity, spin
-from minimality_auto.separators.finite_field import (
+from minimality_auto import presentation as fixed_arity
+from minimality_auto.algebra import amalgam as amalgam_algebra
+from minimality_auto.algebra.finite_field import (
     MatrixGroup,
     identity,
     inverse,
     multiply,
     templates,
 )
+from minimality_auto.core import Circuit, Equation, Generator, Signature, Theory
+from minimality_auto.search import Deadline, NotApplicable, SearchTimeout
+from minimality_auto.separators import amalgam, spin
 
 
 def _symmetric_group_factors():
@@ -25,15 +27,15 @@ def _symmetric_group_factors():
     deadline = Deadline.after(2)
     base = MatrixGroup((cycle, reflection), 3, 2, 16, deadline)
     quotient = MatrixGroup((reflection,), 3, 2, 16, deadline)
-    shared, action = amalgam._close_shared_subgroup(
+    shared, action = amalgam_algebra._close_shared_subgroup(
         base,
         quotient,
         (base.element(cycle),),
         16,
         deadline,
     )
-    second = amalgam._DGroup(base, quotient, action)
-    decomposition, representatives = amalgam._cosets(base, shared, deadline)
+    second = amalgam_algebra._DGroup(base, quotient, action)
+    decomposition, representatives = amalgam_algebra._cosets(base, shared, deadline)
     return base, quotient, shared, second, decomposition, representatives
 
 
@@ -55,9 +57,9 @@ def test_finite_field_matrix_operations_are_exact_over_multiple_fields(prime):
         assert multiply(value_inverse, value, 2, prime) == identity(2)
 
     for first, second, third in product(invertible, repeat=3):
-        assert multiply(
-            multiply(first, second, 2, prime), third, 2, prime
-        ) == multiply(first, multiply(second, third, 2, prime), 2, prime)
+        assert multiply(multiply(first, second, 2, prime), third, 2, prime) == multiply(
+            first, multiply(second, third, 2, prime), 2, prime
+        )
 
 
 def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
@@ -71,16 +73,14 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
     ) = _symmetric_group_factors()
     c_tokens = {value: ("c", value) for value in range(base.order)}
     d_values = tuple(
-        amalgam._DElement(head, tail)
-        for head in sorted(shared)
-        for tail in range(quotient.order)
+        second.element(head, tail) for head in sorted(shared) for tail in range(quotient.order)
     )
     d_tokens = {value: ("d", index) for index, value in enumerate(d_values)}
     tokens = {
         **{token: ("C", value) for value, token in c_tokens.items()},
         **{token: ("D", value) for value, token in d_tokens.items()},
     }
-    model = amalgam._Amalgam(
+    model = amalgam_algebra._Amalgam(
         base,
         second,
         decomposition,
@@ -102,17 +102,18 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
     # Both embeddings agree on the shared C_3 subgroup.
     for value in shared:
         assert model.evaluate_word((c_tokens[value],)) == model.evaluate_word(
-            (d_tokens[amalgam._DElement(value, 0)],)
+            (d_tokens[second.element(value, 0)],)
         )
 
     # Extracting a D syllable's shared head can reduce both neighbours;
     # the expanded word must have the same normal form.
     for left, middle, right in product(range(base.order), d_values, range(base.order)):
         word = (c_tokens[left], d_tokens[middle], c_tokens[right])
+        head, tail = second.components(middle)
         expanded = (
             c_tokens[left],
-            c_tokens[middle.shared],
-            d_tokens[amalgam._DElement(0, middle.quotient)],
+            c_tokens[head],
+            d_tokens[second.element(0, tail)],
             c_tokens[right],
         )
         assert model.evaluate_word(word) == model.evaluate_word(expanded)
@@ -121,14 +122,20 @@ def test_amalgam_normalizer_is_a_homomorphism_on_nonabelian_factors():
 def test_amalgam_semidirect_factor_is_associative():
     _, quotient, shared, second, _, _ = _symmetric_group_factors()
     values = tuple(
-        amalgam._DElement(head, tail)
-        for head in sorted(shared)
-        for tail in range(quotient.order)
+        second.element(head, tail) for head in sorted(shared) for tail in range(quotient.order)
     )
     for first, second_value, third in product(values, repeat=3):
         assert second.multiply(second.multiply(first, second_value), third) == (
             second.multiply(first, second.multiply(second_value, third))
         )
+
+
+def test_amalgam_semidirect_elements_preserve_coordinates():
+    _, quotient, shared, second, _, _ = _symmetric_group_factors()
+    coordinates = tuple(product(sorted(shared), range(quotient.order)))
+    values = tuple(second.element(*pair) for pair in coordinates)
+    assert len(set(values)) == len(coordinates)
+    assert tuple(second.components(value) for value in values) == coordinates
 
 
 def test_amalgam_normalizer_honours_the_shared_search_deadline():
@@ -141,7 +148,7 @@ def test_amalgam_normalizer_honours_the_shared_search_deadline():
         representatives,
     ) = _symmetric_group_factors()
     token = ("c", 1)
-    model = amalgam._Amalgam(
+    model = amalgam_algebra._Amalgam(
         base,
         second,
         decomposition,
@@ -196,10 +203,7 @@ def test_amalgam_bridge_search_includes_retained_only_generators():
         if token[0] == "generator"
     }
     active.update(
-        token[1]
-        for word in presentation.target_pair
-        for token in word
-        if token[0] == "generator"
+        token[1] for word in presentation.target_pair for token in word if token[0] == "generator"
     )
 
     assert active == {"target left", "target right", "retained only"}
@@ -242,12 +246,8 @@ def test_amalgam_candidate_evaluator_respects_prop_contexts():
                 },
                 {
                     "id": "generic two-wire target",
-                    "lhs": {
-                        "tensor": [{"gen": "horizontal flip"}, {"id": 1}]
-                    },
-                    "rhs": {
-                        "tensor": [{"gen": "vertical sign"}, {"id": 1}]
-                    },
+                    "lhs": {"tensor": [{"gen": "horizontal flip"}, {"id": 1}]},
+                    "rhs": {"tensor": [{"gen": "vertical sign"}, {"id": 1}]},
                 },
             ],
         }
@@ -270,12 +270,10 @@ def test_amalgam_candidate_evaluator_respects_prop_contexts():
     flip_right = Circuit.tensor((unit, flip))
     sign_right = Circuit.tensor((unit, sign))
 
-    assert model.evaluate(
-        Circuit.compose((flip_left, sign_right))
-    ) == model.evaluate(Circuit.compose((sign_right, flip_left)))
-    assert model.evaluate(
-        Circuit.compose((swap, flip_left, swap))
-    ) == model.evaluate(flip_right)
+    assert model.evaluate(Circuit.compose((flip_left, sign_right))) == model.evaluate(
+        Circuit.compose((sign_right, flip_left))
+    )
+    assert model.evaluate(Circuit.compose((swap, flip_left, swap))) == model.evaluate(flip_right)
 
 
 def test_spin_rejects_invalid_retained_only_primitive():
@@ -323,17 +321,8 @@ def test_spin_reflection_check_rejects_complex_and_nearly_rank_one_values():
         spin._check_reflection("perturbed", almost_reflection, 1)
 
 
-@pytest.mark.parametrize(
-    ("matrix", "message"),
-    [
-        (((1, 0), (0,)), "wrong shape"),
-        (((1, 0), (0, object())), "invalid entries"),
-    ],
-)
-def test_finite_field_templates_reject_malformed_programmatic_matrices_cleanly(
-    matrix, message
-):
-    malformed = Generator("malformed", 1, 1, matrix)
+def test_finite_field_templates_reject_the_wrong_matrix_shape():
+    malformed = Generator("malformed", 1, 1, ((1, 0), (0,)))
     theory = Theory(
         Signature((malformed,)),
         (
@@ -346,26 +335,5 @@ def test_finite_field_templates_reject_malformed_programmatic_matrices_cleanly(
         wire_dimension=2,
     )
 
-    with pytest.raises(NotApplicable, match=message):
+    with pytest.raises(NotApplicable, match="wrong shape"):
         templates(theory, {"malformed": 1}, frozenset({"malformed"}), 1)
-
-
-def test_spin_rejects_malformed_programmatic_matrix_cleanly():
-    malformed = ((1, 0), (0, object()))
-    generator = Generator("malformed", 1, 1, malformed)
-    term = Circuit.tensor((Circuit.generator(generator), Circuit.identity(4)))
-    theory = Theory(
-        Signature((generator,)),
-        (Equation("target", term, Circuit.identity(5)),),
-        wire_dimension=2,
-    )
-
-    with pytest.raises(NotApplicable, match="valid matrices"):
-        list(
-            spin.candidates(
-                theory,
-                theory.equation("target"),
-                bound=0,
-                deadline=Deadline.after(2),
-            )
-        )

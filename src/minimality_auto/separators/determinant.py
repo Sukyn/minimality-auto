@@ -7,10 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from ..core import (
-    _wire_size_matches,
-)
-from ..search import CandidateModel, Deadline, NotApplicable
+from ..search_types import CandidateModel, Deadline, NotApplicable
+from ..syntax import _wire_size_matches
 from .common import circuit_analysis, primitive_names, wire_parity_is_preserved
 
 PHASE_TOLERANCE = 1e-8
@@ -22,15 +20,10 @@ def _phase(matrix: np.ndarray, dimension: int, arity: int) -> float:
         raise NotApplicable("endomorphism generator matrix must be square")
     size = matrix.shape[0]
     if not _wire_size_matches(size, dimension, arity):
-        raise NotApplicable(
-            f"generator matrix dimension {size} is incompatible with arity {arity}"
-        )
+        raise NotApplicable(f"generator matrix dimension {size} is incompatible with arity {arity}")
     if not np.all(np.isfinite(matrix)):
         raise NotApplicable("generator matrices must have finite entries")
-    try:
-        sign, log_absolute = np.linalg.slogdet(matrix)
-    except np.linalg.LinAlgError as exc:
-        raise NotApplicable("could not compute a generator determinant") from exc
+    sign, log_absolute = np.linalg.slogdet(matrix)
     if not np.isfinite(log_absolute) or abs(sign) < 1e-10:
         raise NotApplicable("determinant model requires invertible generator matrices")
     return cmath.phase(complex(sign)) % math.tau
@@ -55,9 +48,7 @@ def candidates(
     deadline: Deadline,
     context: Any = None,
 ) -> Iterator[CandidateModel]:
-    dimension = int(getattr(theory, "wire_dimension", 2))
-    if dimension < 1:
-        raise NotApplicable("wire dimension must be positive")
+    dimension = theory.wire_dimension
     k = bound
     if k < 2:
         return
@@ -66,10 +57,9 @@ def candidates(
     defaulted: list[str] = []
     for generator in theory.signature.values():
         deadline.check()
-        matrix = getattr(generator, "matrix", None)
-        source = int(generator.inputs)
-        target_arity = int(generator.outputs)
-        name = str(generator.name)
+        matrix = generator.matrix
+        source, target_arity = generator.type
+        name = generator.name
         if name not in active:
             continue
         if source != target_arity or matrix is None:
@@ -79,8 +69,8 @@ def candidates(
             defaulted.append(name)
             continue
         try:
-            phase = _phase(np.asarray(matrix), dimension, source)
-        except (NotApplicable, TypeError, ValueError):
+            phase = _phase(matrix, dimension, source)
+        except NotApplicable:
             weights[name] = 0.0
             defaulted.append(name)
             continue
@@ -112,14 +102,10 @@ def candidates(
     if not any(abs(value) > 1e-10 for value in weights.values()) and not epsilon:
         return
     compact = {
-        name: round(value / math.pi, 10)
-        for name, value in weights.items()
-        if abs(value) > 1e-10
+        name: round(value / math.pi, 10) for name, value in weights.items() if abs(value) > 1e-10
     }
     yield CandidateModel(
-        description=(
-            f"numerical scaled determinant phase (dimension={dimension}, k={k})"
-        ),
+        description=(f"numerical scaled determinant phase (dimension={dimension}, k={k})"),
         parameters={
             "wire_dimension": dimension,
             "k": k,

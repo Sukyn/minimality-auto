@@ -5,10 +5,11 @@ import json
 import numpy as np
 import pytest
 
+from minimality_auto.algebra.semiring_matrix import FiniteSemiring, SemiringMatrixSemantics
 from minimality_auto.core import Theory
 from minimality_auto.main import main
 from minimality_auto.matrix import MatrixSemantics
-from minimality_auto.search import search_theory
+from minimality_auto.search import Deadline, search_theory
 
 
 def _assert_matrix_sound(theory: Theory) -> None:
@@ -78,15 +79,38 @@ def test_structural_searches_do_not_separate_rectangular_prop_laws():
     _assert_matrix_sound(theory)
     report = search_theory(
         theory,
-        strategies=("presence", "counting", "determinant", "substitution"),
+        strategies=("presence", "counting", "determinant", "substitution", "abelianisation",
+                    "relations", "dual_numbers", "finite_field_matrices"),
         max_modulus=3,
         max_depth=1,
+        max_matrix_prime=2,
+        model_timeout_ms=500,
         timeout=10,
     )
 
     assert report.witnesses == {}
     assert report.unresolved == ("naturality", "interchange")
     assert not report.timed_out
+
+
+@pytest.mark.parametrize("kind", ["relations", "finite_field_matrices", "dual_numbers"])
+def test_exact_finite_matrices_respect_rectangular_prop_laws(kind):
+    theory = _rectangular_prop_laws()
+    ring = FiniteSemiring(kind, 5)
+    values = {}
+    for index, (name, generator) in enumerate(theory.signature.items()):
+        def scalar(i, j, index=index):
+            if kind == "relations":
+                return bool((2 * i + j + index) % 3)
+            if kind == "dual_numbers":
+                return (2 * i + j + index) % 5, (i + 3 * j + index) % 5
+            return (2 * i + j + index) % 5
+
+        values[name] = tuple(tuple(scalar(i, j) for j in range(2**generator.inputs))
+                             for i in range(2**generator.outputs))
+    semantics = SemiringMatrixSemantics(2, ring, values, Deadline.after(2))
+    for equation in theory.equations:
+        assert semantics.evaluate(equation.lhs) == semantics.evaluate(equation.rhs)
 
 
 def _contextual_consequence() -> Theory:
@@ -166,6 +190,7 @@ def _endomorphic_prop_laws() -> Theory:
     ("strategy", "options"),
     [
         ("finite_model", {"max_permutation_degree": 3}),
+        ("transformation_monoid", {"max_transformation_degree": 3}),
         (
             "amalgam",
             {"max_amalgam_prime": 3, "max_amalgam_order": 64},
@@ -197,6 +222,9 @@ def test_fixed_arity_searches_do_not_separate_symmetric_prop_laws(
             {"max_modulus": 3, "max_depth": 1},
         ),
         (("finite_model",), {"max_permutation_degree": 3}),
+        (("abelianisation", "relations", "dual_numbers", "finite_field_matrices",
+          "transformation_monoid"),
+         {"max_matrix_prime": 2, "max_transformation_degree": 3, "model_timeout_ms": 500}),
         (
             ("amalgam",),
             {"max_amalgam_prime": 3, "max_amalgam_order": 64},

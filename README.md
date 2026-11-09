@@ -1,8 +1,7 @@
 # minimality-auto
 
 Command-line search for PROP-compatible invariants separating one equation from
-the other equations in a JSON equational theory. The tool assumes the supplied
-theory is complete.
+the other equations in a JSON equational theory.
 
 ## Install
 
@@ -19,7 +18,12 @@ minimality-auto THEORY.json --auto
 # Run one heuristic.
 minimality-auto THEORY.json --presence-checking
 minimality-auto THEORY.json --counting --max-modulus 8
+minimality-auto THEORY.json --abelianisation
 minimality-auto THEORY.json --finite-model --max-permutation-degree 5
+minimality-auto THEORY.json --transformation-monoid --max-transformation-degree 4
+minimality-auto THEORY.json --relations --max-matrix-dimension 2
+minimality-auto THEORY.json --finite-field-matrices --max-matrix-prime 5
+minimality-auto THEORY.json --dual-numbers --max-matrix-prime 5
 minimality-auto THEORY.json --affine-lift --max-affine-lift-prime 5
 minimality-auto THEORY.json --amalgam --max-amalgam-prime 11
 minimality-auto THEORY.json --spin-cover
@@ -87,10 +91,88 @@ Floating-point results are shown as `[numerical]` and serialized with
 `"certified": false`; exact combinatorial results are shown as `[found]`.
 The affine-lift heuristic requires exact `0`/`1` basis-permutation matrices.
 
-TODO: optionally support slower SymPy arithmetic for exact matrix certificates.
+The finite-permutation, transformation-monoid, and affine-lift heuristics support
+endomorphic signatures only. The three new matrix searches support arbitrary
+input/output arities and do not require supplied matrices.
 
-The finite-permutation and affine-lift heuristics currently support endomorphic
-signatures only.
+## Exact finite models and abelianisation
+
+`--dual-numbers` searches matrices over `F_p[epsilon]/(epsilon^2)`. Entries are
+pairs `[a,b]` meaning `a + b*epsilon`; multiplication uses `epsilon^2 = 0`.
+`--finite-field-matrices` searches arbitrary matrices over `F_p`, independently
+for each primitive generator. The base fields currently have prime order.
+`--relations` uses Boolean matrices: composition is OR of ANDs, and tensor is
+the Cartesian product of relations. Empty, partial, and multivalued relations
+are allowed.
+
+For these three searches a generator `m -> n` receives a matrix with `d^n` rows
+and `d^m` columns. The model wire dimension `d` is independent of the input's
+`wire_dimension`. Identities and permutations use their standard matrices.
+These constructions therefore satisfy the symmetric PROP laws, including
+naturality for arity-changing maps.
+
+`--transformation-monoid` searches arbitrary maps of a finite set, including
+nonbijective maps. Like the permutation search, it interprets a fixed ambient
+arity through the word compiler. Structural swaps remain invertible; the
+solver enforces all compiled PROP constraints and retained equations.
+
+Z3 solves the finite interpretation constraints. The common verifier checks
+each candidate with exact Python integer/Boolean arithmetic; transformation
+models also check the compiled PROP laws. JSON output includes the active
+generator interpretation and, for transformation models, the structural swaps.
+
+The defaults are `--max-matrix-dimension 2`, `--max-matrix-prime 5`,
+`--max-matrix-entries 256`, `--max-transformation-degree 4`, and
+`--model-timeout-ms 1000`. The entry cap applies to intermediate matrices too.
+The per-attempt timeout covers constraint construction and solving;
+`--timeout` limits the entire search, including verification. Increase these
+bounds for larger models, for example:
+
+```powershell
+minimality-auto THEORY.json --dual-numbers --max-matrix-dimension 4 --max-matrix-prime 5 --max-matrix-entries 4096 --model-timeout-ms 10000
+```
+
+All allowed matrix entries and transformations are solver variables, rather
+than a list of supplied patterns. Matrix search advances by increasing
+`max(p,d)` (by `d` for relations); transformation degree increases from 2.
+An attempt that times out or returns unknown leaves the equation unresolved.
+Failure within these finite bounds is not a dependence proof.
+
+`--abelianisation` computes the full additive quotient of primitive occurrence
+counts by retained equation differences using integer Smith reduction. It
+keeps both free integer coordinates and torsion invariant factors, without a
+modulus ceiling. It also includes the swap sign with order two when every
+generator preserves wire parity. JSON gives coordinate moduli (`0` for a free
+coordinate) and each generator's image. This is complete for this additive
+invariant family; it does not capture all noncommutative consequences of a
+theory. The older bounded `--counting` option remains available.
+
+All five methods are included in `--auto`. Abelianisation runs after the
+initial presence attempts. Finite synthesis is interleaved with the remaining
+bounded strategies, with a separate time cap on each synthesis attempt.
+
+Small distinguishing examples are in [`theories/finite_models/`](theories/finite_models).
+
+## Code layout
+
+- `syntax.py`, `parsing.py`, and `analysis.py`: typed circuits, JSON input, and
+  structural analysis. `core.py` preserves the public circuit imports.
+- `search_types.py`, `context.py`, and `strategies.py`: candidate/result types,
+  deadlines, cached target information, configuration, and scheduling.
+  `search.py` verifies candidates and runs the search.
+- `presentation.py`: shared fixed-arity compilation, arity checks, and PROP constraints.
+- `algebra/`: finite-field and semiring matrices, shared integer Smith reduction
+  for counting and abelianisation, shared finite-field row reduction for inverses
+  and affine lifts, finite groups, and amalgam normal forms.
+- `separators/`: candidate construction. `matrices.py` contains the three finite
+  matrix methods; `actions.py` shares evaluation, validation, and certificates
+  between permutation and transformation searches. `synthesis.py` provides
+  shared Z3 time budgets and solving.
+- `main.py` and `runner.py`: CLI handling and process-based timeouts.
+
+Validation focuses on JSON input, mathematical assumptions, witness verification,
+and search budgets. Internal helpers trust data built by the application;
+unexpected programming errors raise normally.
 
 ## Test
 

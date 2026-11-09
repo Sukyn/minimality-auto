@@ -254,7 +254,10 @@ def test_matrix_evaluation_caches_repeated_subterms(monkeypatch):
     monkeypatch.setattr(matrix_module.np, "asarray", counted)
     signature = Signature.from_json({"x": {"type": 1, "matrix": [[0, 1], [1, 0]]}})
     gate = Circuit.generator(signature["x"])
-    MatrixSemantics(signature).evaluate(Circuit.compose((gate, gate)))
+    semantics = MatrixSemantics(signature)
+    semantics.evaluate(Circuit.compose((gate, gate)))
+    semantics.evaluate(Circuit.tensor((gate, Circuit.identity(1))))
+    semantics.evaluate(gate)
 
     assert conversions == 1
 

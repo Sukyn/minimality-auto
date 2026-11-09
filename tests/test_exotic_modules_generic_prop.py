@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from minimality_auto.algebra.finite_field import instantiate, templates
 from minimality_auto.core import (
     Circuit,
     Equation,
@@ -13,7 +14,6 @@ from minimality_auto.core import (
 )
 from minimality_auto.search import Deadline, NotApplicable, search_theory
 from minimality_auto.separators import amalgam, spin
-from minimality_auto.separators.finite_field import instantiate, templates
 
 THEORY_PATH = (
     Path(__file__).parents[1] / "theories" / "realclifford-ch-simplified.json"

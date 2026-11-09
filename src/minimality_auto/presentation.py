@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from ..core import Circuit
-from ..search import Deadline, NotApplicable
-from .common import retained_equations
+from .context import retained_equations
+from .search_types import Deadline, NotApplicable
+from .syntax import Circuit, _inverse_permutation
 
 Token = tuple[str, str | int]
 Word = tuple[Token, ...]
@@ -21,13 +21,6 @@ def generator(name: str) -> Token:
 
 def swap(index: int) -> Token:
     return "swap", index
-
-
-def _inverse(order: tuple[int, ...]) -> tuple[int, ...]:
-    result = [0] * len(order)
-    for output, source in enumerate(order):
-        result[source] = output
-    return tuple(result)
 
 
 def adjacent_word(
@@ -69,7 +62,7 @@ def place(
     return (
         adjacent_word(order, deadline=deadline)
         + (token,)
-        + adjacent_word(_inverse(order), deadline=deadline)
+        + adjacent_word(_inverse_permutation(order), deadline=deadline)
     )
 
 
@@ -83,12 +76,7 @@ def compile_word(
 ) -> Word:
     if deadline is not None:
         deadline.check()
-    if (
-        total < 0
-        or offset < 0
-        or node.inputs != node.outputs
-        or offset + node.inputs > total
-    ):
+    if total < 0 or offset < 0 or node.inputs != node.outputs or offset + node.inputs > total:
         raise NotApplicable("fixed-arity models require endomorphisms")
     if node.kind == "id":
         return ()
@@ -152,6 +140,14 @@ class Presentation:
     generator_specs: tuple[tuple[str, int], ...]
     variables: tuple[Token, ...]
 
+    def compile(self, term: Circuit, deadline: Deadline | None = None) -> Word:
+        """Compile a circuit within this presentation's ambient arity."""
+        if term.inputs != term.outputs or term.inputs > self.arity:
+            raise NotApplicable(
+                f"fixed-arity interpretation supports endomorphisms through arity {self.arity}"
+            )
+        return compile_word(term, self.signature, self.arity, deadline=deadline)
+
     @cached_property
     def active_names(self) -> frozenset[str]:
         return frozenset(name for name, _ in self.generator_specs)
@@ -159,10 +155,7 @@ class Presentation:
     @cached_property
     def target_generators(self) -> frozenset[Token]:
         return frozenset(
-            token
-            for word in self.target_pair
-            for token in word
-            if token[0] == "generator"
+            token for word in self.target_pair for token in word if token[0] == "generator"
         )
 
     @cached_property
@@ -172,9 +165,7 @@ class Presentation:
     @cached_property
     def separation_constraints(self) -> tuple[Constraint, ...]:
         retained = tuple(
-            constraint
-            for constraint in self.retained
-            if constraint.left != constraint.right
+            constraint for constraint in self.retained if constraint.left != constraint.right
         )
         return (
             *self.prop,
@@ -272,9 +263,7 @@ def compile_presentation(
     if arity < 0:
         raise NotApplicable("fixed-arity search requires a non-negative arity")
     signature = {
-        name: spec.inputs
-        for name, spec in theory.signature.items()
-        if spec.inputs <= arity
+        name: spec.inputs for name, spec in theory.signature.items() if spec.inputs <= arity
     }
 
     def compile_term(term: Circuit) -> Word:
@@ -296,16 +285,9 @@ def compile_presentation(
         for word in (constraint.left, constraint.right)
         for token in word
         if token[0] == "generator"
-    ) | frozenset(
-        token
-        for word in target_pair
-        for token in word
-        if token[0] == "generator"
-    )
+    ) | frozenset(token for word in target_pair for token in word if token[0] == "generator")
     generator_specs = tuple(
-        (name, width)
-        for name, width in signature.items()
-        if generator(name) in used
+        (name, width) for name, width in signature.items() if generator(name) in used
     )
     result = Presentation(
         arity=arity,

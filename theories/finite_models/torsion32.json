@@ -1,0 +1,8 @@
+{
+  "name": "Counting beyond a small modulus ceiling",
+  "generators": {"g": 1},
+  "equations": [
+    {"id": "order32", "lhs": {"gen": "g", "repeat": 32}, "rhs": {"id": 1}},
+    {"id": "target", "lhs": {"gen": "g", "repeat": 16}, "rhs": {"id": 1}}
+  ]
+}

@@ -7,12 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from ..core import Circuit
-from ..search import (
-    Deadline,
-    DirectEvidence,
-    NotApplicable,
-)
+from ..search_types import Deadline, DirectEvidence, NotApplicable
+from ..syntax import Circuit
 from .common import (
     active_primitive_names,
     numerical_matrix,

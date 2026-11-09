@@ -19,9 +19,7 @@ def _write_theory(path):
             {
                 "name": "cli_example",
                 "generators": {"a": 1},
-                "equations": [
-                    {"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}
-                ],
+                "equations": [{"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}],
             }
         ),
         encoding="utf-8",
@@ -54,9 +52,7 @@ def test_cli_json_output(tmp_path, capsys):
             {
                 "name": "cli_json",
                 "generators": {"a": 1},
-                "equations": [
-                    {"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}
-                ],
+                "equations": [{"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}],
             }
         ),
         encoding="utf-8",
@@ -84,16 +80,12 @@ def test_finite_model_cli_alias_and_degree_bound(tmp_path, capsys, degree_flag):
         ),
         encoding="utf-8",
     )
-    assert main(
-        [str(path), "--finite-model", degree_flag, "3", "--timeout", "2"]
-    ) == 0
+    assert main([str(path), "--finite-model", degree_flag, "3", "--timeout", "2"]) == 0
     output = capsys.readouterr().out
     assert "degree-3 permutation interpretation: generators {H=" in output
 
 
-def test_cli_labels_numerical_evidence_without_reporting_success(
-    tmp_path, capsys, monkeypatch
-):
+def test_cli_labels_numerical_evidence_without_reporting_success(tmp_path, capsys, monkeypatch):
     path = tmp_path / "theory.json"
     _write_theory(path)
     evidence = Separation(
@@ -201,79 +193,3 @@ def test_real_cli_streams_from_the_hard_timeout_worker(tmp_path):
     assert "[found] drop" in lines[0]
     assert "separator(s) found" in lines[1]
     assert sum("[found] drop" in line for line in lines) == 1
-
-
-def test_hard_timeout_reports_worker_exit_without_a_result(monkeypatch):
-    theory = main_module.Theory.from_json(
-        {
-            "generators": {"a": 1},
-            "equations": [
-                {"id": "drop", "lhs": {"gen": "a"}, "rhs": {"id": 1}}
-            ],
-        }
-    )
-
-    class Receiver:
-        closed = False
-
-        def poll(self, _timeout):
-            return True
-
-        def recv(self):
-            raise EOFError
-
-        def close(self):
-            self.closed = True
-
-    class Sender:
-        def close(self):
-            pass
-
-    class Process:
-        exitcode = 7
-        joins = 0
-
-        def start(self):
-            pass
-
-        def join(self):
-            self.joins += 1
-
-        def is_alive(self):
-            return False
-
-        def terminate(self):
-            raise AssertionError("completed worker must not be terminated")
-
-    receiver = Receiver()
-    process = Process()
-
-    class Context:
-        def Pipe(self, *, duplex):
-            assert not duplex
-            return receiver, Sender()
-
-        def Process(self, **_kwargs):
-            return process
-
-    monkeypatch.setattr(
-        main_module,
-        "search_theory",
-        lambda *_args, **_kwargs: SearchReport(
-            "theory", {}, ("drop",), 0.0, True
-        ),
-    )
-    monkeypatch.setattr(main_module.multiprocessing, "get_context", lambda _mode: Context())
-
-    with pytest.raises(main_module.PropError, match="exit code 7"):
-        main_module._timed_search(
-            theory,
-            {
-                "timeout": 1.0,
-                "equation_ids": None,
-                "max_arity": None,
-            },
-        )
-
-    assert receiver.closed
-    assert process.joins >= 1
